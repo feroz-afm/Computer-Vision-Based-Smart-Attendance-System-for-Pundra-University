@@ -12,7 +12,7 @@ export const Footer = () => {
   }, []);
 
   return (
-    <footer className="bg-navy-950 border-t border-slate-800 text-slate-400 py-16" id="contact">
+    <footer className="bg-navy-950 border-t border-slate-800 text-slate-400 py-16 scroll-mt-20" id="contact">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 pb-12 border-b border-slate-850">
           
@@ -78,24 +78,24 @@ export const Footer = () => {
             </h4>
             <ul className="space-y-2.5 text-sm">
               <li>
-                <a href="#overview" className="hover:text-cyan-400 transition-colors">
+                <Link href="/#overview" className="hover:text-cyan-400 transition-colors">
                   System Overview
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="#how-it-works" className="hover:text-cyan-400 transition-colors">
+                <Link href="/#how-it-works" className="hover:text-cyan-400 transition-colors">
                   How It Works
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="#university" className="hover:text-cyan-400 transition-colors">
+                <Link href="/#university" className="hover:text-cyan-400 transition-colors">
                   Pundra University
-                </a>
+                </Link>
               </li>
               <li>
-                <a href="#team" className="hover:text-cyan-400 transition-colors">
+                <Link href="/#team" className="hover:text-cyan-400 transition-colors">
                   Hackathon Team
-                </a>
+                </Link>
               </li>
             </ul>
           </div>

@@ -33,11 +33,11 @@ const STEPS = [
 
 export const AboutSection = () => {
   return (
-    <section className="py-24 relative" id="how-it-works">
+    <section className="py-24 relative scroll-mt-20" id="university">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         
-        {/* Section Header */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center mb-20" id="university">
+        {/* Section Header: University Showcase */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center mb-20">
           
           <div className="lg:col-span-6 space-y-6">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-navy-900 border border-slate-700 text-xs font-semibold uppercase tracking-wider text-cyan-400">
@@ -91,7 +91,7 @@ export const AboutSection = () => {
         </div>
 
         {/* How It Works Steps */}
-        <div className="pt-8">
+        <div className="pt-8 scroll-mt-28" id="how-it-works">
           <div className="text-center max-w-2xl mx-auto space-y-3 mb-14">
             <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               How PUB AttendEye Works

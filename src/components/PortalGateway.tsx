@@ -73,7 +73,7 @@ const PORTALS: PortalCardProps[] = [
 
 export const PortalGateway = () => {
   return (
-    <section className="py-24 bg-navy-900/60 relative border-y border-slate-800/80" id="portals">
+    <section className="py-24 bg-navy-900/60 relative border-y border-slate-800/80 scroll-mt-20" id="portals">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         
         {/* Section Header */}

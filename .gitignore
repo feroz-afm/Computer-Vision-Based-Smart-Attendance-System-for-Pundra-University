@@ -45,5 +45,28 @@ tsconfig.tsbuildinfo
 dataset/
 biometrics/
 captured_faces/
+crops/
+face_crops/
 *.npy
 *.pkl
+
+# Python Virtual Environment & Bytecode
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pretrained Model Weights
+*.onnx
+*.pb
+*.pt
+*.pth
+*.tflite
+models/
+
+# Backup Archives
+*.zip
+

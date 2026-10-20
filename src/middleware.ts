@@ -55,6 +55,28 @@ export async function middleware(request: NextRequest) {
       redirectUrl.searchParams.set('message', 'Please log in to access this portal');
       return NextResponse.redirect(redirectUrl);
     }
+
+    // Server-side role authorization verification
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    const actualRole = profile?.role || user.user_metadata?.role || 'student';
+
+    // 1. Admin portal protection: Only admin role permitted
+    if (path.startsWith('/admin') && actualRole !== 'admin') {
+      const target = actualRole === 'teacher' ? '/teacher/dashboard' : '/student/dashboard';
+      const redirectUrl = new URL(target, request.url);
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    // 2. Teacher portal protection: Only teacher or admin role permitted
+    if (path.startsWith('/teacher') && actualRole !== 'teacher' && actualRole !== 'admin') {
+      const redirectUrl = new URL('/student/dashboard', request.url);
+      return NextResponse.redirect(redirectUrl);
+    }
   }
 
   return response;

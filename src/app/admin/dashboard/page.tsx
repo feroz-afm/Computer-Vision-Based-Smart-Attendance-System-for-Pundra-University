@@ -85,8 +85,8 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<UserRecord[]>([
     {
       id: '1',
-      name: 'Md Feroz Ahmed',
-      email: 'admin@pundra.edu.bd',
+      name: 'System Administrator',
+      email: 'admin.console@pundra.edu.bd',
       role: 'admin',
       identifier: 'PUB-ADM-001',
       department: 'Computer Science & Engineering',
@@ -95,8 +95,8 @@ export default function AdminDashboard() {
     },
     {
       id: '2',
-      name: 'Dr. Rafiqul Islam',
-      email: 'teacher@pundra.edu.bd',
+      name: 'Faculty Instructor',
+      email: 'faculty.instructor@pundra.edu.bd',
       role: 'teacher',
       identifier: 'PUB-FAC-014',
       department: 'Computer Science & Engineering',
@@ -105,8 +105,8 @@ export default function AdminDashboard() {
     },
     {
       id: '3',
-      name: 'Engr. Kamrul Hasan',
-      email: 'kamrul@pundra.edu.bd',
+      name: 'Faculty Lecturer',
+      email: 'faculty.lecturer@pundra.edu.bd',
       role: 'teacher',
       identifier: 'PUB-FAC-022',
       department: 'Computer Science & Engineering',
@@ -115,8 +115,8 @@ export default function AdminDashboard() {
     },
     {
       id: '4',
-      name: 'Md Tanvir Ahmed',
-      email: 'student@pundra.edu.bd',
+      name: 'Student Account 1',
+      email: 'student.sample1@pundra.edu.bd',
       role: 'student',
       identifier: 'PUB-CSE-2023-042',
       department: 'Computer Science & Engineering',
@@ -125,8 +125,8 @@ export default function AdminDashboard() {
     },
     {
       id: '5',
-      name: 'Nusrat Jahan',
-      email: 'nusrat@pundra.edu.bd',
+      name: 'Student Account 2',
+      email: 'student.sample2@pundra.edu.bd',
       role: 'student',
       identifier: 'PUB-CSE-2023-018',
       department: 'Computer Science & Engineering',
@@ -135,8 +135,8 @@ export default function AdminDashboard() {
     },
     {
       id: '6',
-      name: 'Sabbir Hossain',
-      email: 'sabbir@pundra.edu.bd',
+      name: 'Student Account 3',
+      email: 'student.sample3@pundra.edu.bd',
       role: 'student',
       identifier: 'PUB-CSE-2023-033',
       department: 'Computer Science & Engineering',
@@ -287,14 +287,62 @@ export default function AdminDashboard() {
       previousStatus: 'absent',
       newStatus: 'excused',
       reason: 'Official medical waiver document submitted to department office.',
-      changedBy: 'Md Feroz Ahmed (Admin)',
+      changedBy: 'System Administrator (Admin)',
       timestamp: '2026-10-17 14:15:20',
     },
   ]);
 
   useEffect(() => {
-    setLoading(false);
-  }, []);
+    const fetchAdminData = async () => {
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = createClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          if (user) {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('role, full_name')
+              .eq('id', user.id)
+              .single();
+
+            // Enforce role authorization: Only admins can view admin console
+            if (profileData && profileData.role !== 'admin') {
+              router.push(profileData.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
+              return;
+            }
+
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('id, full_name, email, role, created_at')
+              .order('created_at', { ascending: false });
+
+            if (profiles && profiles.length > 0) {
+              setUsers(
+                profiles.map((p) => ({
+                  id: p.id,
+                  name: p.full_name,
+                  email: p.email,
+                  role: p.role,
+                  identifier: p.id.slice(0, 8).toUpperCase(),
+                  department: 'Computer Science & Engineering',
+                  status: 'active',
+                  created_at: p.created_at ? p.created_at.split('T')[0] : '2026-10-20',
+                }))
+              );
+            }
+          }
+        } catch {
+          // Graceful fallback
+        }
+      }
+      setLoading(false);
+    };
+
+    fetchAdminData();
+  }, [router]);
 
   const handleSaveSettings = () => {
     setSettingsSaved(true);

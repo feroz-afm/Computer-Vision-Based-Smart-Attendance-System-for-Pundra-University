@@ -1,0 +1,76 @@
+# PUB AttendEye - Computer Vision & Deep Learning Backend
+
+from backend.detector import YuNetFaceDetector, DetectedFace
+from backend.recognizer import SFaceEmbedder, cosine_similarity
+from backend.matching import (
+    FaceMatcher,
+    CourseRosterManager,
+    EnrolledStudentBiometric,
+    FaceMatchResult,
+    ClassroomMatchResult,
+    CandidateScore,
+    UnauthorizedTeacherError,
+    ModelVersionMismatchError,
+    InvalidEmbeddingError,
+    SUPPORTED_MODEL_VERSION,
+    PROVISIONAL_MATCH_THRESHOLD,
+    PROVISIONAL_REVIEW_THRESHOLD,
+)
+
+from backend.enrollment import (
+    StudentFaceEnrollmentService,
+    EnrollmentPayload,
+    QualityValidationResult,
+    ValidatedSample,
+    EnrollmentError,
+    UnauthenticatedError,
+    ConsentRequiredError,
+    IdentitySpoofingError,
+    SampleQualityError,
+    ModelVersionError,
+    ENROLLMENT_MODEL_VERSION,
+    compute_laplacian_blur_score,
+)
+from backend.supabase_enrollment import (
+    SupabaseEnrollmentManager,
+    MockEnrollmentRepository,
+    StudentDatabaseRecord,
+    ConsentRecord,
+    EnrollmentSummaryResponse,
+)
+
+__all__ = [
+    "YuNetFaceDetector",
+    "DetectedFace",
+    "SFaceEmbedder",
+    "cosine_similarity",
+    "FaceMatcher",
+    "CourseRosterManager",
+    "EnrolledStudentBiometric",
+    "FaceMatchResult",
+    "ClassroomMatchResult",
+    "CandidateScore",
+    "UnauthorizedTeacherError",
+    "ModelVersionMismatchError",
+    "InvalidEmbeddingError",
+    "SUPPORTED_MODEL_VERSION",
+    "PROVISIONAL_MATCH_THRESHOLD",
+    "PROVISIONAL_REVIEW_THRESHOLD",
+    "StudentFaceEnrollmentService",
+    "EnrollmentPayload",
+    "QualityValidationResult",
+    "ValidatedSample",
+    "EnrollmentError",
+    "UnauthenticatedError",
+    "ConsentRequiredError",
+    "IdentitySpoofingError",
+    "SampleQualityError",
+    "ModelVersionError",
+    "ENROLLMENT_MODEL_VERSION",
+    "compute_laplacian_blur_score",
+    "SupabaseEnrollmentManager",
+    "MockEnrollmentRepository",
+    "StudentDatabaseRecord",
+    "ConsentRecord",
+    "EnrollmentSummaryResponse",
+]

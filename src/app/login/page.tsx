@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner';
-import { GraduationCap, Users2, Shield, ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { GraduationCap, Users2, Shield, ArrowRight, CheckCircle2, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
@@ -14,6 +14,7 @@ function LoginForm() {
   const [role, setRole] = useState<'student' | 'teacher' | 'admin'>('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -23,6 +24,7 @@ function LoginForm() {
     if (roleParam === 'teacher') setRole('teacher');
     else if (roleParam === 'admin') setRole('admin');
     else if (roleParam === 'student') setRole('student');
+    else setRole('student'); // Missing or invalid role parameters safely default to student, NEVER teacher
 
     const msg = searchParams.get('message');
     if (msg) setErrorMsg(msg);
@@ -76,6 +78,19 @@ function LoginForm() {
           .single();
 
         const actualRole = profile?.role || 'student';
+
+        // Validate that user is logging into a portal their role authorizes
+        if (role === 'admin' && actualRole !== 'admin') {
+          setErrorMsg('Access Denied: Your account does not have Administrator privileges.');
+          setLoading(false);
+          return;
+        }
+
+        if (role === 'teacher' && actualRole === 'student') {
+          setErrorMsg('Access Denied: Student accounts cannot access the Teacher Portal.');
+          setLoading(false);
+          return;
+        }
 
         setSuccessMsg(`Welcome back, ${profile?.full_name || 'User'}! Redirecting to dashboard...`);
 
@@ -194,8 +209,9 @@ function LoginForm() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={role === 'admin' ? 'admin@pundra.edu.bd' : `${role}@pundra.edu.bd`}
+                placeholder="institutional-email@pundra.edu.bd"
                 className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                autoComplete="email"
               />
             </div>
 
@@ -203,14 +219,25 @@ function LoginForm() {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold text-slate-300">Password</label>
               </div>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-4 py-3 pr-11 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:text-cyan-400"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button

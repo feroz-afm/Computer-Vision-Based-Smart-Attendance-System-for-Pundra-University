@@ -13,7 +13,7 @@ const HIGHLIGHTS = [
 
 export const HeroSection = () => {
   return (
-    <section className="relative pt-32 pb-20 lg:pt-40 lg:pb-32 overflow-hidden" id="overview">
+    <section className="relative pt-32 pb-20 lg:pt-40 lg:pb-32 overflow-hidden scroll-mt-20" id="overview">
       {/* Background ambient lighting */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-indigo-600/10 blur-[130px] rounded-full pointer-events-none" />
       <div className="absolute top-1/3 right-10 w-[450px] h-[450px] bg-cyan-500/10 blur-[140px] rounded-full pointer-events-none" />
@@ -88,7 +88,7 @@ export const HeroSection = () => {
 
           {/* Right Column: Visual Showcase */}
           <div className="lg:col-span-5 relative flex justify-center">
-            <div className="relative w-full max-w-[560px] aspect-[16/9] rounded-3xl p-2.5 sm:p-3 bg-gradient-to-b from-slate-800/80 via-navy-900/80 to-navy-950 border border-slate-700/60 shadow-2xl shadow-indigo-950/50">
+            <div className="relative w-full max-w-[420px] aspect-square rounded-3xl p-3 bg-gradient-to-b from-slate-800/80 via-navy-900/80 to-navy-950 border border-slate-700/60 shadow-2xl shadow-indigo-950/50">
               
               {/* Inner frame */}
               <div className="relative w-full h-full rounded-2xl overflow-hidden bg-navy-950 border border-cyan-500/20 flex items-center justify-center">
@@ -96,27 +96,25 @@ export const HeroSection = () => {
                   src="/assets/perfect_vision.png"
                   alt="PUB AttendEye Face Recognition Interface Preview"
                   fill
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 560px"
-                  className="object-cover object-center opacity-95 transition-transform duration-700 hover:scale-105"
+                  className="object-cover object-center opacity-90 transition-transform duration-700 hover:scale-105"
                   priority
                 />
 
                 {/* Gradient overlay for readability */}
-                <div className="absolute inset-0 bg-gradient-to-t from-navy-950/80 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute inset-0 bg-gradient-to-t from-navy-950 via-transparent to-transparent opacity-80" />
 
                 {/* Floating telemetry pills */}
-                <div className="absolute top-3 left-3 sm:top-4 sm:left-4 inline-flex items-center gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-navy-950/85 border border-cyan-500/40 backdrop-blur-md z-10 shadow-lg">
+                <div className="absolute top-4 left-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-navy-950/85 border border-cyan-500/40 backdrop-blur-md">
                   <Scan className="w-3.5 h-3.5 text-cyan-400" />
                   <span className="text-xs font-semibold text-cyan-300">Vision Node Ready</span>
                 </div>
 
-                {/* Biometric information card */}
-                <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-4 p-3 sm:p-3.5 rounded-xl bg-navy-900/90 border border-slate-700/90 backdrop-blur-md z-10 shadow-xl">
+                <div className="absolute bottom-5 left-4 right-4 p-4 rounded-xl bg-navy-900/90 border border-slate-700/90 backdrop-blur-md">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-semibold text-slate-300">Biometric Architecture</span>
                     <span className="text-xs font-bold text-cyan-400">Modular Engine</span>
                   </div>
-                  <p className="text-[11px] text-slate-400 leading-snug">
+                  <p className="text-[11px] text-slate-400">
                     Engineered for high accuracy and anti-spoofing liveness verification.
                   </p>
                 </div>

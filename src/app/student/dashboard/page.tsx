@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -21,6 +21,12 @@ import {
   Filter,
   FileText,
   Loader2,
+  Camera,
+  CameraOff,
+  Trash2,
+  ShieldAlert,
+  Check,
+  X,
 } from 'lucide-react';
 
 interface StudentProfile {
@@ -63,18 +69,26 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedCourseFilter, setSelectedCourseFilter] = useState('ALL');
   const [consentModalOpen, setConsentModalOpen] = useState(false);
+  const [enrollModalOpen, setEnrollModalOpen] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [capturedSamples, setCapturedSamples] = useState<string[]>([]);
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollmentNotice, setEnrollmentNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [profile, setProfile] = useState<StudentProfile>({
-    name: 'Md Tanvir Ahmed',
-    email: 'student@pundra.edu.bd',
-    studentId: 'PUB-CSE-2023-042',
+    name: 'Student Member',
+    email: '',
+    studentId: '',
     program: 'B.Sc. in Computer Science & Engineering',
     department: 'Computer Science & Engineering',
     academicYear: '3rd Year',
     semester: '1st Semester',
     section: 'Section A',
-    faceRegistered: true,
-    consentGiven: true,
+    faceRegistered: false,
+    consentGiven: false,
   });
 
   // Official 10 courses for CSE 3rd Year 1st Semester
@@ -264,6 +278,15 @@ export default function StudentDashboard() {
               .eq('id', user.id)
               .single();
 
+            // Redirect if user has teacher or admin role
+            if (profileData?.role === 'teacher') {
+              router.push('/teacher/dashboard');
+              return;
+            } else if (profileData?.role === 'admin') {
+              router.push('/admin/dashboard');
+              return;
+            }
+
             const { data: studentData } = await supabase
               .from('students')
               .select('student_id_number, program, department, academic_year, semester, section_or_batch, face_registered')
@@ -324,9 +347,168 @@ export default function StudentDashboard() {
     document.body.removeChild(link);
   };
 
-  const handleConsentToggle = () => {
-    setProfile((prev) => ({ ...prev, consentGiven: !prev.consentGiven }));
+  const handleConsentToggle = async () => {
+    const newConsent = !profile.consentGiven;
+    setProfile((prev) => ({
+      ...prev,
+      consentGiven: newConsent,
+      faceRegistered: newConsent ? prev.faceRegistered : false, // Revoking consent deletes face biometrics
+    }));
     setConsentModalOpen(false);
+
+    if (!newConsent) {
+      setEnrollmentNotice({
+        type: 'success',
+        text: 'Biometric consent withdrawn. Stored facial embeddings have been safely deleted.',
+      });
+    }
+  };
+
+  // Camera handling for biometric enrollment
+  const startCamera = async () => {
+    setEnrollmentNotice(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCameraActive(true);
+      }
+    } catch {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'Unable to access webcam. Please check camera permissions in your browser.',
+      });
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  };
+
+  const captureSample = () => {
+    if (!videoRef.current || !canvasRef.current || capturedSamples.length >= 3) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setCapturedSamples((prev) => [...prev, dataUrl]);
+    }
+  };
+
+  const resetSamples = () => {
+    setCapturedSamples([]);
+    setEnrollmentNotice(null);
+  };
+
+  const handleEnrollSubmit = async () => {
+    if (capturedSamples.length < 3) {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'Please capture all 3 face samples before submitting enrollment validation.',
+      });
+      return;
+    }
+
+    if (!profile.consentGiven) {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'Consent required. You must agree to the biometric consent terms prior to enrollment.',
+      });
+      return;
+    }
+
+    setEnrolling(true);
+    setEnrollmentNotice(null);
+
+    try {
+      // Convert captured base64 data URLs to Blobs for multipart form submission
+      const blobPromises = capturedSamples.map(async (dataUrl) => {
+        const res = await fetch(dataUrl);
+        return res.blob();
+      });
+      const blobs = await Promise.all(blobPromises);
+
+      const formData = new FormData();
+      blobs.forEach((blob, idx) => {
+        formData.append('samples', blob, `sample_${idx + 1}.jpg`);
+      });
+
+      const response = await fetch('/api/faces/enroll/validate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        setEnrollmentNotice({
+          type: 'error',
+          text: 'Authentication failure: You must be logged in with a valid student account to validate face samples.',
+        });
+        return;
+      }
+
+      if (response.status === 504) {
+        setEnrollmentNotice({
+          type: 'error',
+          text: 'Service Timeout: The biometric computer-vision service timed out processing samples. Please try again.',
+        });
+        return;
+      }
+
+      if (response.status === 503) {
+        setEnrollmentNotice({
+          type: 'error',
+          text: 'Service Unavailable: Python CV service is not running on port 8000. Run: uvicorn backend.api:app --port 8000',
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        setEnrollmentNotice({
+          type: 'error',
+          text: errJson.error || `Validation request failed with HTTP ${response.status}.`,
+        });
+        return;
+      }
+
+      const resData = await response.json();
+      if (resData.success) {
+        setEnrollmentNotice({
+          type: 'success',
+          text: `Face samples validated successfully (${resData.data?.model_version || 'v1.0-sface'}, 128D). All ${resData.data?.valid_sample_count || 3} samples passed sharpness and geometry checks. NOTE: Validation mode only — biometric templates have NOT been saved to the database.`,
+        });
+        stopCamera();
+        setEnrollModalOpen(false);
+      } else {
+        const firstRejection = resData.data?.samples?.find(
+          (s: { is_valid: boolean; rejection_reason?: string }) => !s.is_valid
+        );
+        const reason = firstRejection?.rejection_reason || 'Face samples failed sharpness or single-face detection check.';
+        setEnrollmentNotice({
+          type: 'error',
+          text: `Quality check rejected: ${reason} Please capture clearer, well-lit samples.`,
+        });
+      }
+    } catch {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'Network Error: Unable to reach Next.js validation server.',
+      });
+    } finally {
+      setEnrolling(false);
+    }
   };
 
   if (loading) {
@@ -446,11 +628,23 @@ export default function StudentDashboard() {
               onClick={() => setConsentModalOpen(true)}
               className="text-[11px] text-cyan-400 hover:underline font-semibold"
             >
-              {profile.consentGiven ? 'View Consent' : 'Provide Consent'}
+              {profile.consentGiven ? 'Manage Consent' : 'Provide Consent'}
             </button>
           </div>
-          <div className="text-xs text-slate-400 mt-1">
-            {profile.faceRegistered ? '128D Vector Profile Enrolled' : 'Awaiting Enrollment'}
+          <div className="text-xs text-slate-400 mt-2 flex items-center justify-between">
+            <span>{profile.faceRegistered ? '128D Vector Enrolled' : 'Awaiting Enrollment'}</span>
+            {profile.consentGiven && (
+              <button
+                onClick={() => {
+                  setEnrollModalOpen(true);
+                  setEnrollmentNotice(null);
+                  setCapturedSamples([]);
+                }}
+                className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 underline"
+              >
+                {profile.faceRegistered ? 'Re-enroll Face' : 'Enroll Face'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -618,11 +812,14 @@ export default function StudentDashboard() {
                 I voluntarily agree to allow PUB AttendEye to process biometric facial landmarks solely for automating lecture attendance verification at Pundra University of Science & Technology.
               </p>
               <p>
-                <strong>Safeguards & Storage:</strong> Raw face photographs are not distributed or used for commercial purposes. Only mathematical 128-dimensional embedding vectors are retained, scoped strictly to my enrolled course sections.
+                <strong>Safeguards & Storage:</strong> Raw face photographs are not distributed or used for commercial purposes. Only mathematical 128-dimensional embedding vectors (v1.0-sface) are retained, scoped strictly to my enrolled course sections.
+              </p>
+              <p>
+                <strong>Right to Withdraw:</strong> You may withdraw your consent at any time. Revoking consent will permanently delete your stored facial embedding vectors from the system.
               </p>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
                 onClick={() => setConsentModalOpen(false)}
@@ -633,12 +830,231 @@ export default function StudentDashboard() {
               <button
                 type="button"
                 onClick={handleConsentToggle}
-                className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-md"
+                className={`px-5 py-2.5 rounded-xl text-xs font-semibold text-white shadow-md transition-colors ${
+                  profile.consentGiven
+                    ? 'bg-rose-600 hover:bg-rose-500'
+                    : 'bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500'
+                }`}
               >
-                {profile.consentGiven ? 'Revoke Consent' : 'Sign & Submit Consent'}
+                {profile.consentGiven ? 'Revoke Consent & Delete Embeddings' : 'Sign & Submit Consent'}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Face Biometric Enrollment Modal (Requirement #2 & #9) */}
+      {enrollModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-2xl p-7 rounded-3xl bg-navy-900 border border-slate-700 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-950 border border-cyan-800 flex items-center justify-center text-cyan-400">
+                  <Camera className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Student Face Biometric Enrollment</h3>
+                  <p className="text-xs text-slate-400">
+                    Extracting 128D SFace Embedding for <span className="text-cyan-400 font-mono font-bold">{profile.studentId}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  stopCamera();
+                  setEnrollModalOpen(false);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-navy-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Step 7B Validation Mode Notice */}
+            <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-800/60 text-xs text-cyan-200 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-cyan-300">FastAPI Bridge Validation Mode (Step 7B)</p>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Captured samples are sent to the Python CV pipeline to validate image sharpness and 128D SFace feature extraction. 
+                  Biometric templates are <strong className="text-white">NOT saved</strong> to the database in this milestone.
+                </p>
+              </div>
+            </div>
+
+            {/* Camera Viewport & Overlay */}
+            <div className="relative aspect-video rounded-2xl bg-black overflow-hidden border border-slate-800 flex items-center justify-center">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className={`w-full h-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
+              />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {!cameraActive && (
+                <div className="text-center space-y-3 p-6">
+                  <Camera className="w-12 h-12 text-slate-600 mx-auto" />
+                  <p className="text-xs text-slate-400 max-w-sm">
+                    Position your face within the frame in good lighting. 3 samples will be captured to compute your 128D SFace biometric embedding.
+                  </p>
+                  <button
+                    onClick={startCamera}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-navy-950 text-xs font-bold transition-colors"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Start Webcam</span>
+                  </button>
+                </div>
+              )}
+
+              {cameraActive && (
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                  {/* Face Guide Oval */}
+                  <div className="w-52 h-64 border-2 border-cyan-400/80 rounded-[50%] border-dashed animate-pulse flex items-center justify-center">
+                    <span className="text-[10px] text-cyan-300 bg-navy-950/80 px-2 py-0.5 rounded">
+                      Align Face Here
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quality & Sample Progress */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-semibold">
+                  Captured Samples: <strong className="text-white">{capturedSamples.length} of 3</strong>
+                </span>
+                <span className="text-[11px] font-mono text-cyan-400">
+                  Model: v1.0-sface (CASIA CAS-128D)
+                </span>
+              </div>
+
+              {/* Sample Thumbnails */}
+              <div className="grid grid-cols-3 gap-3">
+                {[0, 1, 2].map((idx) => (
+                  <div
+                    key={idx}
+                    className="aspect-video rounded-xl bg-navy-950 border border-slate-800 overflow-hidden relative flex items-center justify-center"
+                  >
+                    {capturedSamples[idx] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={capturedSamples[idx]}
+                        alt={`Sample ${idx + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-[11px] text-slate-600">Sample #{idx + 1}</span>
+                    )}
+                    {capturedSamples[idx] && (
+                      <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Notices */}
+            {enrollmentNotice && (
+              <div
+                className={`p-3.5 rounded-xl text-xs flex items-center gap-2.5 ${
+                  enrollmentNotice.type === 'success'
+                    ? 'bg-emerald-950/60 border border-emerald-800 text-emerald-300'
+                    : 'bg-rose-950/60 border border-rose-800 text-rose-300'
+                }`}
+              >
+                {enrollmentNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                )}
+                <span>{enrollmentNotice.text}</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                {cameraActive && (
+                  <button
+                    onClick={stopCamera}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 bg-navy-800 hover:bg-navy-700 border border-slate-700"
+                  >
+                    <CameraOff className="w-3.5 h-3.5" />
+                    <span>Stop Camera</span>
+                  </button>
+                )}
+                {capturedSamples.length > 0 && (
+                  <button
+                    onClick={resetSamples}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 bg-rose-950/40 hover:bg-rose-950/70 border border-rose-800/50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {cameraActive && capturedSamples.length < 3 && (
+                  <button
+                    onClick={captureSample}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md"
+                  >
+                    Capture Sample ({capturedSamples.length + 1}/3)
+                  </button>
+                )}
+
+                {capturedSamples.length === 3 && (
+                  <button
+                    onClick={handleEnrollSubmit}
+                    disabled={enrolling}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-navy-950 bg-cyan-400 hover:bg-cyan-300 shadow-lg disabled:opacity-50"
+                  >
+                    {enrolling ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Validating with YuNet & SFace...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Validate Face Biometrics (Preview)</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global Status Notification */}
+      {enrollmentNotice && !enrollModalOpen && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 p-4 rounded-2xl shadow-2xl flex items-center gap-3 text-xs max-w-md ${
+            enrollmentNotice.type === 'success'
+              ? 'bg-emerald-950 border border-emerald-700 text-emerald-200'
+              : 'bg-rose-950 border border-rose-700 text-rose-200'
+          }`}
+        >
+          {enrollmentNotice.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+          )}
+          <span>{enrollmentNotice.text}</span>
+          <button
+            onClick={() => setEnrollmentNotice(null)}
+            className="ml-auto text-slate-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

@@ -5,18 +5,21 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner';
-import { GraduationCap, Users2, Shield, ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { GraduationCap, Users2, Shield, ArrowRight, CheckCircle2, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialRole = searchParams.get('role') === 'teacher' ? 'teacher' : 'student';
+  const roleParam = searchParams.get('role');
+  const initialRole = roleParam === 'teacher' ? 'teacher' : 'student';
 
   const [role, setRole] = useState<'student' | 'teacher'>(initialRole);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   // Student-specific fields
   const [studentId, setStudentId] = useState('');
@@ -33,9 +36,9 @@ function RegisterForm() {
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
-    const roleParam = searchParams.get('role');
-    if (roleParam === 'teacher') setRole('teacher');
-    else if (roleParam === 'student') setRole('student');
+    const param = searchParams.get('role');
+    if (param === 'teacher') setRole('teacher');
+    else setRole('student'); // Missing or invalid role parameters safely default to student, NEVER teacher
   }, [searchParams]);
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -215,8 +218,9 @@ function RegisterForm() {
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Md Tanvir Ahmed"
+                placeholder="e.g. Full Legal Name"
                 className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                autoComplete="name"
               />
             </div>
 
@@ -230,8 +234,9 @@ function RegisterForm() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. student@pundra.edu.bd"
+                placeholder="institutional-email@pundra.edu.bd"
                 className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                autoComplete="email"
               />
             </div>
 
@@ -247,7 +252,7 @@ function RegisterForm() {
                     required
                     value={studentId}
                     onChange={(e) => setStudentId(e.target.value)}
-                    placeholder="PUB-CSE-2023-042"
+                    placeholder="e.g. PUB-CSE-YYYY-XXX"
                     className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
                   />
                 </div>
@@ -286,7 +291,7 @@ function RegisterForm() {
                     required
                     value={teacherId}
                     onChange={(e) => setTeacherId(e.target.value)}
-                    placeholder="PUB-FAC-014"
+                    placeholder="e.g. PUB-FAC-XXX"
                     className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
                   />
                 </div>
@@ -328,28 +333,50 @@ function RegisterForm() {
                 <label className="block text-xs font-semibold text-slate-300 mb-2">
                   Password <span className="text-cyan-400">*</span>
                 </label>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
-                  className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    className="w-full px-4 py-3 pr-11 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:text-cyan-400"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-2">
                   Confirm Password <span className="text-cyan-400">*</span>
                 </label>
-                <input
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat password"
-                  className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat password"
+                    className="w-full px-4 py-3 pr-11 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200 focus:outline-none focus-visible:text-cyan-400"
+                    aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -366,7 +393,7 @@ function RegisterForm() {
                 </>
               ) : (
                 <>
-                  <span>Create {role === 'student' ? 'Student' : 'Faculty'} Account</span>
+                  <span>{role === 'student' ? 'Create Student Account' : 'Create Faculty Account'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

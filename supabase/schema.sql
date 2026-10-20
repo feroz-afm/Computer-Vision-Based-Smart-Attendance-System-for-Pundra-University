@@ -281,7 +281,7 @@ begin
     where id = auth.uid() and role = 'admin'
   );
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 
 create or replace function public.is_teacher()
 returns boolean as $$
@@ -291,68 +291,118 @@ begin
     where id = auth.uid() and role = 'teacher'
   );
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 
 -- Profiles Policies
+drop policy if exists "Users can view own profile or admin view all" on public.profiles;
 create policy "Users can view own profile or admin view all"
   on public.profiles for select
   to authenticated
   using (auth.uid() = id or public.is_admin());
 
+drop policy if exists "Users can update own profile" on public.profiles;
 create policy "Users can update own profile"
   on public.profiles for update
   to authenticated
   using (auth.uid() = id);
 
+drop policy if exists "Admins full access to profiles" on public.profiles;
 create policy "Admins full access to profiles"
   on public.profiles for all
   to authenticated
   using (public.is_admin());
 
+-- Role escalation guard: ordinary users cannot change their own or other users' roles
+-- NOTE: Because this function is SECURITY DEFINER, current_user is always 'postgres'.
+-- We use session_user to detect the real connection identity:
+--   SQL Editor / migrations:  session_user = 'postgres' or 'supabase_admin'
+--   PostgREST (anon/auth):    session_user = 'authenticator'
+--   Service-role requests:    session_user = 'authenticator', JWT role = 'service_role'
+create or replace function public.check_profile_role_update()
+returns trigger as $$
+begin
+  -- If role is not being modified, allow immediately
+  if new.role is not distinct from old.role then
+    return new;
+  end if;
+
+  -- Allow if executed by PostgreSQL superuser / SQL Editor / migrations
+  if session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  -- Allow if invoked via service_role (trusted server-side backend)
+  if coalesce(auth.jwt()->>'role', '') = 'service_role' then
+    return new;
+  end if;
+
+  -- Otherwise, only an authenticated administrator can modify user roles
+  if not public.is_admin() then
+    raise exception 'Unauthorized: Only administrators can modify user roles.';
+  end if;
+
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public, pg_temp;
+
+drop trigger if exists tr_protect_profile_role on public.profiles;
+create trigger tr_protect_profile_role
+  before update on public.profiles
+  for each row execute function public.check_profile_role_update();
+
 -- Students Policies
+drop policy if exists "Students view own record or teachers/admins view" on public.students;
 create policy "Students view own record or teachers/admins view"
   on public.students for select
   to authenticated
   using (profile_id = auth.uid() or public.is_teacher() or public.is_admin());
 
+drop policy if exists "Admins manage student records" on public.students;
 create policy "Admins manage student records"
   on public.students for all
   to authenticated
   using (public.is_admin());
 
 -- Teachers Policies
+drop policy if exists "Authenticated users view teachers" on public.teachers;
 create policy "Authenticated users view teachers"
   on public.teachers for select
   to authenticated
   using (true);
 
+drop policy if exists "Admins manage teachers" on public.teachers;
 create policy "Admins manage teachers"
   on public.teachers for all
   to authenticated
   using (public.is_admin());
 
 -- Courses & Semesters Policies
+drop policy if exists "Authenticated users view courses" on public.courses;
 create policy "Authenticated users view courses"
   on public.courses for select
   to authenticated
   using (true);
 
+drop policy if exists "Admins manage courses" on public.courses;
 create policy "Admins manage courses"
   on public.courses for all
   to authenticated
   using (public.is_admin());
 
+drop policy if exists "View semesters and sections" on public.semesters;
 create policy "View semesters and sections"
   on public.semesters for select
   to authenticated
   using (true);
 
+drop policy if exists "View sections" on public.sections;
 create policy "View sections"
   on public.sections for select
   to authenticated
   using (true);
 
 -- Teacher-Course Assignments Policies (CRITICAL REQUIREMENT #5)
+drop policy if exists "Teachers view own course assignments" on public.teacher_course_assignments;
 create policy "Teachers view own course assignments"
   on public.teacher_course_assignments for select
   to authenticated
@@ -361,12 +411,14 @@ create policy "Teachers view own course assignments"
     or public.is_admin()
   );
 
+drop policy if exists "Admins manage teacher course assignments" on public.teacher_course_assignments;
 create policy "Admins manage teacher course assignments"
   on public.teacher_course_assignments for all
   to authenticated
   using (public.is_admin());
 
 -- Enrollments Policies
+drop policy if exists "Students view own enrollments" on public.enrollments;
 create policy "Students view own enrollments"
   on public.enrollments for select
   to authenticated
@@ -376,6 +428,7 @@ create policy "Students view own enrollments"
     or public.is_admin()
   );
 
+drop policy if exists "Admins manage enrollments" on public.enrollments;
 create policy "Admins manage enrollments"
   on public.enrollments for all
   to authenticated
@@ -383,11 +436,13 @@ create policy "Admins manage enrollments"
 
 -- Class Sessions Policies (STRICT REQUIREMENT #5)
 -- Teacher can only create/update sessions for courses they are assigned to!
+drop policy if exists "View class sessions" on public.class_sessions;
 create policy "View class sessions"
   on public.class_sessions for select
   to authenticated
   using (true);
 
+drop policy if exists "Teachers create sessions only for assigned courses" on public.class_sessions;
 create policy "Teachers create sessions only for assigned courses"
   on public.class_sessions for insert
   to authenticated
@@ -406,6 +461,7 @@ create policy "Teachers create sessions only for assigned courses"
     )
   );
 
+drop policy if exists "Teachers update own assigned sessions" on public.class_sessions;
 create policy "Teachers update own assigned sessions"
   on public.class_sessions for update
   to authenticated
@@ -418,6 +474,7 @@ create policy "Teachers update own assigned sessions"
   );
 
 -- Attendance Records Policies
+drop policy if exists "Students view own attendance" on public.attendance_records;
 create policy "Students view own attendance"
   on public.attendance_records for select
   to authenticated
@@ -427,6 +484,7 @@ create policy "Students view own attendance"
     or public.is_admin()
   );
 
+drop policy if exists "Teachers mark attendance only for own sessions" on public.attendance_records;
 create policy "Teachers mark attendance only for own sessions"
   on public.attendance_records for insert
   to authenticated
@@ -440,6 +498,7 @@ create policy "Teachers mark attendance only for own sessions"
     )
   );
 
+drop policy if exists "Teachers update attendance only for own sessions" on public.attendance_records;
 create policy "Teachers update attendance only for own sessions"
   on public.attendance_records for update
   to authenticated
@@ -454,22 +513,26 @@ create policy "Teachers update attendance only for own sessions"
   );
 
 -- Attendance Audit Logs Policies
+drop policy if exists "View audit logs" on public.attendance_audit_logs;
 create policy "View audit logs"
   on public.attendance_audit_logs for select
   to authenticated
   using (public.is_teacher() or public.is_admin());
 
+drop policy if exists "Insert audit logs on correction" on public.attendance_audit_logs;
 create policy "Insert audit logs on correction"
   on public.attendance_audit_logs for insert
   to authenticated
   with check (auth.uid() = changed_by or public.is_admin());
 
 -- Settings Policies
+drop policy if exists "Anyone authenticated can view settings" on public.attendance_settings;
 create policy "Anyone authenticated can view settings"
   on public.attendance_settings for select
   to authenticated
   using (true);
 
+drop policy if exists "Admins manage settings" on public.attendance_settings;
 create policy "Admins manage settings"
   on public.attendance_settings for all
   to authenticated
@@ -540,7 +603,7 @@ begin
 
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -557,6 +620,14 @@ returns text as $$
 declare
   target_user_id uuid;
 begin
+  -- Restrict execution: Only superuser/postgres, service_role, or existing admin can execute
+  -- NOTE: session_user (not current_user) is used because this function is SECURITY DEFINER
+  if session_user not in ('postgres', 'supabase_admin') 
+     and (coalesce(auth.jwt()->>'role', '') <> 'service_role')
+     and not public.is_admin() then
+    raise exception 'Unauthorized: Administrator privileges or SQL Editor access required.';
+  end if;
+
   select id into target_user_id from public.profiles where email = target_email;
   
   if target_user_id is null then
@@ -566,7 +637,11 @@ begin
   update public.profiles set role = 'admin', updated_at = now() where id = target_user_id;
   return 'Success: User ' || target_email || ' has been securely granted Administrator privileges.';
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
+
+-- Revoke public API / RPC execution; grant only to service_role and postgres
+revoke execute on function public.promote_to_admin(text) from public, anon, authenticated;
+grant execute on function public.promote_to_admin(text) to service_role;
 
 -- ==============================================================================
 -- 19. IDEMPOTENT ACADEMIC SEED DATA (CSE 3rd Year, 1st Semester)

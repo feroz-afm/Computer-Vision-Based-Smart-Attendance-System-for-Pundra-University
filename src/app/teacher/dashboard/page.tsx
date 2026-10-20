@@ -76,11 +76,11 @@ export default function TeacherDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile] = useState<TeacherProfile>({
-    name: 'Dr. Rafiqul Islam',
-    email: 'teacher@pundra.edu.bd',
-    teacherId: 'PUB-FAC-014',
+    name: 'Faculty Member',
+    email: '',
+    teacherId: '',
     department: 'Computer Science & Engineering',
-    designation: 'Associate Professor',
+    designation: 'Faculty Member',
   });
 
   // Strict Teacher Course Assignments (Requirement #5)
@@ -171,6 +171,12 @@ export default function TeacherDashboard() {
               .select('full_name, email, role')
               .eq('id', user.id)
               .single();
+
+            // Enforce role authorization: students cannot access teacher portal
+            if (profileData && profileData.role !== 'teacher' && profileData.role !== 'admin') {
+              router.push('/student/dashboard');
+              return;
+            }
 
             const { data: teacherData } = await supabase
               .from('teachers')

@@ -1,21 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Menu, X, Shield, GraduationCap, Users } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Menu, X, Users } from 'lucide-react';
 
 const NAV_LINKS = [
-  { label: 'Overview', href: '#overview' },
-  { label: 'Portals', href: '#portals' },
-  { label: 'How It Works', href: '#how-it-works' },
-  { label: 'Team', href: '#team' },
-  { label: 'University', href: '#university' },
+  { label: 'Overview', href: '/#overview', targetId: 'overview' },
+  { label: 'Portals', href: '/#portals', targetId: 'portals' },
+  { label: 'How It Works', href: '/#how-it-works', targetId: 'how-it-works' },
+  { label: 'Team', href: '/#team', targetId: 'team' },
+  { label: 'University', href: '/#university', targetId: 'university' },
 ];
 
 export const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -24,6 +26,64 @@ export const Navbar = () => {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  const scrollToSection = useCallback((targetId: string) => {
+    const elem = document.getElementById(targetId);
+    if (elem) {
+      elem.scrollIntoView({ behavior: 'smooth' });
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    setMobileMenuOpen(false);
+    if (pathname === '/') {
+      e.preventDefault();
+      const didScroll = scrollToSection(targetId);
+      if (didScroll) {
+        window.history.pushState(null, '', `#${targetId}`);
+      }
+    }
+    // If not on homepage (e.g. /login?role=student), standard Link behavior navigates to /#targetId
+  };
+
+  // When pathname is '/', ensure target element from hash is scrolled into view (including after route transition)
+  useEffect(() => {
+    if (pathname === '/') {
+      const hash = window.location.hash.replace(/^#/, '');
+      if (hash) {
+        let attempts = 0;
+        const maxAttempts = 20;
+        const interval = setInterval(() => {
+          attempts++;
+          const target = document.getElementById(hash);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth' });
+            clearInterval(interval);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(interval);
+          }
+        }, 50);
+
+        return () => clearInterval(interval);
+      }
+    }
+  }, [pathname]);
+
+  // Listen for hash changes when staying on the homepage
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.pathname === '/') {
+        const hash = window.location.hash.replace(/^#/, '');
+        if (hash) {
+          scrollToSection(hash);
+        }
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [scrollToSection]);
 
   return (
     <header
@@ -36,7 +96,17 @@ export const Navbar = () => {
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         <div className="flex items-center justify-between">
           {/* Brand Logo & Name */}
-          <Link href="/" className="flex items-center gap-3.5 group">
+          <Link
+            href="/"
+            onClick={(e) => {
+              if (pathname === '/') {
+                e.preventDefault();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                window.history.pushState(null, '', '/');
+              }
+            }}
+            className="flex items-center gap-3.5 group focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-xl"
+          >
             <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-navy-900 border border-cyan-500/30 p-1 flex items-center justify-center transition-transform group-hover:scale-105">
               <Image
                 src="/assets/Logo.png"
@@ -60,40 +130,44 @@ export const Navbar = () => {
           </Link>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden md:flex items-center gap-8" aria-label="Main Navigation">
             {NAV_LINKS.map((link) => (
-              <a
+              <Link
                 key={link.label}
                 href={link.href}
-                className="text-sm font-medium text-slate-300 hover:text-cyan-400 transition-colors py-1"
+                onClick={(e) => handleNavClick(e, link.targetId)}
+                className="text-sm font-medium text-slate-300 hover:text-cyan-400 transition-colors py-1 focus:outline-none focus-visible:text-cyan-400"
               >
                 {link.label}
-              </a>
+              </Link>
             ))}
           </nav>
 
           {/* Quick Access Buttons */}
           <div className="hidden lg:flex items-center gap-3">
             <Link
-              href="#portals"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-200 bg-navy-900/80 hover:bg-navy-800 px-4 py-2.5 rounded-lg border border-slate-700/80 transition-all hover:border-cyan-500/40"
+              href="/#portals"
+              onClick={(e) => handleNavClick(e, 'portals')}
+              className="inline-flex items-center gap-2 text-sm font-medium text-slate-200 bg-navy-900/80 hover:bg-navy-800 px-4 py-2.5 rounded-lg border border-slate-700/80 transition-all hover:border-cyan-500/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
             >
               <Users className="w-4 h-4 text-cyan-400" />
               <span>Role Portals</span>
             </Link>
-            <a
-              href="#portals"
-              className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 px-5 py-2.5 rounded-lg shadow-md shadow-cyan-500/20 transition-all hover:shadow-cyan-500/35 hover:-translate-y-0.5"
+            <Link
+              href="/#portals"
+              onClick={(e) => handleNavClick(e, 'portals')}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 px-5 py-2.5 rounded-lg shadow-md shadow-cyan-500/20 transition-all hover:shadow-cyan-500/35 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
             >
               <span>Get Started</span>
-            </a>
+            </Link>
           </div>
 
           {/* Mobile Menu Toggle */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-slate-300 hover:text-white rounded-lg bg-navy-900/60 border border-slate-800"
+            className="md:hidden p-2 text-slate-300 hover:text-white rounded-lg bg-navy-900/60 border border-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
             aria-label="Toggle menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -104,21 +178,21 @@ export const Navbar = () => {
           <div className="md:hidden mt-4 py-4 px-6 rounded-2xl bg-navy-900/95 border border-slate-800 backdrop-blur-xl shadow-2xl space-y-4">
             <div className="flex flex-col gap-3">
               {NAV_LINKS.map((link) => (
-                <a
+                <Link
                   key={link.label}
                   href={link.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="text-sm font-medium text-slate-200 hover:text-cyan-400 py-1"
+                  onClick={(e) => handleNavClick(e, link.targetId)}
+                  className="text-sm font-medium text-slate-200 hover:text-cyan-400 py-1 focus:outline-none focus-visible:text-cyan-400"
                 >
                   {link.label}
-                </a>
+                </Link>
               ))}
             </div>
             <div className="pt-3 border-t border-slate-800 flex flex-col gap-2.5">
               <Link
-                href="#portals"
-                onClick={() => setMobileMenuOpen(false)}
-                className="w-full text-center py-2.5 rounded-lg text-sm font-medium bg-navy-800 text-slate-200 border border-slate-700"
+                href="/#portals"
+                onClick={(e) => handleNavClick(e, 'portals')}
+                className="w-full text-center py-2.5 rounded-lg text-sm font-medium bg-navy-800 text-slate-200 border border-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
               >
                 Access Role Portals
               </Link>

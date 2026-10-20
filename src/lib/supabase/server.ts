@@ -34,3 +34,18 @@ export async function createClient() {
     },
   });
 }
+
+/**
+ * Helper to check if Supabase credentials are configured on server
+ */
+export function isSupabaseConfigured(): boolean {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return Boolean(
+    supabaseUrl &&
+    supabaseAnonKey &&
+    !supabaseUrl.includes('your-project-id') &&
+    !supabaseAnonKey.includes('your-anon-publishable-key') &&
+    !supabaseUrl.includes('placeholder-project')
+  );
+}

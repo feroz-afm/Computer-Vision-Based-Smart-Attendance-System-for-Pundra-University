@@ -13,7 +13,7 @@ const TEAM_ROLES = [
 
 export const TeamSection = () => {
   return (
-    <section className="py-24 bg-navy-900/40 relative border-t border-slate-800/80" id="team">
+    <section className="py-24 bg-navy-900/40 relative border-t border-slate-800/80 scroll-mt-20" id="team">
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         
         {/* Section Header */}

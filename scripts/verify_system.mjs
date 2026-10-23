@@ -3,7 +3,7 @@
  * Tests Core Logic, Calculations, Security Policies & Route Health
  */
 
-import { calculateAttendancePercentage, generateCSVReport, validateCorrectionReason } from '../src/lib/attendance/service.js';
+import { calculateAttendancePercentage, generateCSVReport, validateCorrectionReason } from '../src/lib/attendance/service.ts';
 
 console.log('================================================================');
 console.log('  PUB AttendEye — Full-Stack Verification & Security Test Suite');

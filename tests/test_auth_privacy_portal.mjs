@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
 async function runTests() {
   console.log('================================================================');

@@ -3,10 +3,11 @@ import assert from 'node:assert';
 async function testNavigation() {
   console.log('--- Verifying PUB AttendEye Portal Navigation ---');
   
+  const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
   const portalUrls = [
-    { name: 'Student Portal', url: 'http://localhost:3000/login?role=student' },
-    { name: 'Teacher Portal', url: 'http://localhost:3000/login?role=teacher' },
-    { name: 'Admin Portal', url: 'http://localhost:3000/login?role=admin' },
+    { name: 'Student Portal', url: `${BASE_URL}/login?role=student` },
+    { name: 'Teacher Portal', url: `${BASE_URL}/login?role=teacher` },
+    { name: 'Admin Portal', url: `${BASE_URL}/login?role=admin` },
   ];
 
   const expectedNavItems = [
@@ -32,7 +33,7 @@ async function testNavigation() {
   }
 
   console.log('\nChecking Homepage Section Target IDs...');
-  const homeRes = await fetch('http://localhost:3000/');
+  const homeRes = await fetch(`${BASE_URL}/`);
   assert.strictEqual(homeRes.status, 200, 'Expected 200 OK for homepage');
   const homeHtml = await homeRes.text();
 

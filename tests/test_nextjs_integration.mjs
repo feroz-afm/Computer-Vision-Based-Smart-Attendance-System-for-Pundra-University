@@ -12,9 +12,17 @@
  * 8. Live HTTP test against running FastAPI backend on http://127.0.0.1:8000.
  */
 
-import http from 'http';
-
 const CV_API_URL = process.env.PYTHON_CV_API_URL || 'http://127.0.0.1:8000';
+
+async function safeFetch(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -197,7 +205,7 @@ console.log('\n[4] Testing Live HTTP Connection to FastAPI Bridge:');
 async function testLiveFastAPIBridge() {
   try {
     // 4.1 Health Check
-    const healthRes = await fetch(`${CV_API_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    const healthRes = await safeFetch(`${CV_API_URL}/health`, {}, 3000);
     assert(healthRes.status === 200, `Live GET /health returns HTTP 200 (got ${healthRes.status})`);
     const healthJson = await healthRes.json();
     assert(healthJson.status === 'healthy', `Live health status is 'healthy' (got '${healthJson.status}')`);
@@ -205,8 +213,7 @@ async function testLiveFastAPIBridge() {
     assert(healthJson.model_sface === 'available', 'Live SFace model is reported available');
 
     // 4.2 POST /api/v1/faces/enroll/validate with test images
-    // Create a 100x100 blank JPEG using simple minimal byte buffer
-    // A minimal valid 1x1 JPEG
+    // Minimal valid 1x1 JPEG buffer
     const minimalJpg = Buffer.from([
       0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
       0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
@@ -227,25 +234,23 @@ async function testLiveFastAPIBridge() {
     formData.append('samples', new Blob([minimalJpg], { type: 'image/jpeg' }), 'sample_1.jpg');
 
     // 4.2a Unauthenticated request to protected endpoint -> must return 401
-    const unauthRes = await fetch(`${CV_API_URL}/api/v1/faces/enroll/validate`, {
+    const unauthRes = await safeFetch(`${CV_API_URL}/api/v1/faces/enroll/validate`, {
       method: 'POST',
       body: formData,
-      signal: AbortSignal.timeout(5000),
-    });
+    }, 5000);
     assert(
       unauthRes.status === 401,
       `Live POST /api/v1/faces/enroll/validate without auth returns HTTP 401 (got ${unauthRes.status})`
     );
 
     // 4.2b Request with arbitrary invalid token -> must return 401
-    const invalidTokenRes = await fetch(`${CV_API_URL}/api/v1/faces/enroll/validate`, {
+    const invalidTokenRes = await safeFetch(`${CV_API_URL}/api/v1/faces/enroll/validate`, {
       method: 'POST',
       body: formData,
       headers: {
         Authorization: 'Bearer completely-arbitrary-unconfigured-token',
       },
-      signal: AbortSignal.timeout(5000),
-    });
+    }, 5000);
     assert(
       invalidTokenRes.status === 401,
       `Live POST /api/v1/faces/enroll/validate with arbitrary token returns HTTP 401 (got ${invalidTokenRes.status})`
@@ -253,35 +258,44 @@ async function testLiveFastAPIBridge() {
 
     // 4.2c Valid request with configured dev test token
     const devToken = process.env.DEV_TEST_TOKEN || 'test-token-step7b';
-    const enrollRes = await fetch(`${CV_API_URL}/api/v1/faces/enroll/validate`, {
+    const enrollRes = await safeFetch(`${CV_API_URL}/api/v1/faces/enroll/validate`, {
       method: 'POST',
       body: formData,
       headers: {
         Authorization: `Bearer ${devToken}`,
       },
-      signal: AbortSignal.timeout(5000),
-    });
+    }, 5000);
 
     assert(
       enrollRes.status === 200,
       `Live POST /api/v1/faces/enroll/validate with dev token returns HTTP 200 (got ${enrollRes.status})`
     );
 
-    const enrollData = await enrollRes.json();
+    let enrollData = null;
+    try {
+      enrollData = await enrollRes.json();
+    } catch {
+      enrollData = null;
+    }
+
     assert(
-      typeof enrollData.all_valid === 'boolean',
-      'Live validation returns structured all_valid boolean field'
+      typeof enrollData?.all_valid === 'boolean',
+      'Live validation returns structured all_valid boolean field',
+      enrollData?.detail || ''
     );
     assert(
-      enrollData.total_sample_count === 1,
-      'Live validation returns total_sample_count: 1'
+      enrollData?.total_sample_count === 1,
+      'Live validation returns total_sample_count: 1',
+      `got ${enrollData?.total_sample_count}`
     );
     assert(
-      enrollData.anti_spoofing_note.includes('NOT implemented'),
-      'Live validation contains anti-spoofing disclaimer'
+      typeof enrollData?.anti_spoofing_note === 'string' &&
+        enrollData.anti_spoofing_note.includes('NOT implemented'),
+      'Live validation contains anti-spoofing disclaimer',
+      `note: ${enrollData?.anti_spoofing_note}`
     );
     assert(
-      !JSON.stringify(enrollData).includes('embedding'),
+      !JSON.stringify(enrollData || {}).includes('embedding'),
       'Live validation does NOT leak raw embedding vectors to caller'
     );
 
@@ -301,7 +315,7 @@ console.log(`  Tests Completed: ${testsPassed + testsFailed} | Passed: ${testsPa
 console.log('================================================================\n');
 
 if (testsFailed > 0) {
-  process.exit(1);
+  process.exitCode = 1;
 } else {
   console.log('All Step 7B integration tests passed successfully.');
 }

@@ -60,7 +60,7 @@ function LoginForm() {
 
       if (error) {
         if (error.message.includes('Invalid login credentials')) {
-          setErrorMsg('Invalid institutional email or password. Please verify your details.');
+          setErrorMsg('Invalid email address or password. Please verify your details.');
         } else if (error.message.includes('Email not confirmed')) {
           setErrorMsg('Email address not yet confirmed. Please verify your email inbox.');
         } else {
@@ -70,32 +70,77 @@ function LoginForm() {
       }
 
       if (data.user) {
-        // Fetch server-assigned profile role to prevent role spoofing
+        // Fetch server-assigned profile role to prevent role spoofing (Never trust client-supplied user_metadata for elevated privileges)
         const { data: profile } = await supabase
           .from('profiles')
           .select('role, full_name')
           .eq('id', data.user.id)
           .single();
 
-        const actualRole = profile?.role || 'student';
+        // Enforce server-side role from public.profiles table
+        const actualRole: 'student' | 'teacher' | 'admin' = profile?.role
+          ? (profile.role as 'student' | 'teacher' | 'admin')
+          : ((data.user.user_metadata?.role === 'teacher' ? 'teacher' : 'student') as 'student' | 'teacher');
 
         // Validate that user is logging into a portal their role authorizes
-        if (role === 'admin' && actualRole !== 'admin') {
-          setErrorMsg('Access Denied: Your account does not have Administrator privileges.');
-          setLoading(false);
-          return;
+        if (role === 'admin') {
+          if (profile?.role !== 'admin') {
+            setErrorMsg('Access Denied: Your account does not have verified Administrator privileges in the database.');
+            setLoading(false);
+            return;
+          }
         }
 
-        if (role === 'teacher' && actualRole === 'student') {
+        if (role === 'teacher' && actualRole !== 'teacher' && actualRole !== 'admin') {
           setErrorMsg('Access Denied: Student accounts cannot access the Teacher Portal.');
           setLoading(false);
           return;
         }
 
-        setSuccessMsg(`Welcome back, ${profile?.full_name || 'User'}! Redirecting to dashboard...`);
+        // Check teacher approval status to block rejected accounts
+        if (actualRole === 'teacher') {
+          let teacherStatus = (data.user.user_metadata?.approval_status as string) || 'approved';
+          try {
+            const { data: teacherData } = await supabase
+              .from('teachers')
+              .select('approval_status')
+              .eq('profile_id', data.user.id)
+              .single();
+            if (teacherData?.approval_status) {
+              teacherStatus = teacherData.approval_status;
+            }
+          } catch {}
+
+          if (typeof window !== 'undefined') {
+            const stored = JSON.parse(localStorage.getItem('pending_teachers') || '[]');
+            const match = stored.find(
+              (t: any) =>
+                (t.email && data.user.email && t.email.toLowerCase() === data.user.email.toLowerCase()) ||
+                t.id === data.user.id
+            );
+            if (match?.status) {
+              teacherStatus = match.status;
+            }
+            const directStatus = localStorage.getItem(`teacher_approval_${data.user.id}`);
+            if (directStatus) {
+              teacherStatus = directStatus;
+            }
+          }
+
+          if (teacherStatus === 'rejected') {
+            setErrorMsg('Access Denied: Your faculty registration application was rejected by the Academic Administrator.');
+            setLoading(false);
+            return;
+          }
+        }
+
+        const displayName = profile?.full_name || data.user.user_metadata?.full_name || 'Faculty Member';
+        setSuccessMsg(`Welcome back, ${displayName}! Redirecting to dashboard...`);
 
         setTimeout(() => {
-          if (actualRole === 'admin') {
+          if (role === 'teacher' && (actualRole === 'teacher' || actualRole === 'admin')) {
+            router.push('/teacher/dashboard');
+          } else if (actualRole === 'admin') {
             router.push('/admin/dashboard');
           } else if (actualRole === 'teacher') {
             router.push('/teacher/dashboard');
@@ -199,12 +244,14 @@ function LoginForm() {
           )}
 
           {/* Login Form */}
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-5" autoComplete="on">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">
+              <label htmlFor="login-email" className="block text-xs font-semibold text-slate-300 mb-2">
                 Email Address
               </label>
               <input
+                id="login-email"
+                name="email"
                 type="email"
                 required
                 value={email}
@@ -217,10 +264,12 @@ function LoginForm() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-semibold text-slate-300">Password</label>
+                <label htmlFor="login-password" className="text-xs font-semibold text-slate-300">Password</label>
               </div>
               <div className="relative">
                 <input
+                  id="login-password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}

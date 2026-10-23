@@ -56,24 +56,25 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Server-side role authorization verification
+    // Server-side role authorization verification: STRICTLY enforce database-backed role.
+    // Never trust client-supplied user_metadata or URL parameters for elevated privileges (Requirement #4).
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    const actualRole = profile?.role || user.user_metadata?.role || 'student';
+    const verifiedRole = profile?.role || 'student';
 
-    // 1. Admin portal protection: Only admin role permitted
-    if (path.startsWith('/admin') && actualRole !== 'admin') {
-      const target = actualRole === 'teacher' ? '/teacher/dashboard' : '/student/dashboard';
+    // 1. Admin portal protection: Only verified database admin role permitted
+    if (path.startsWith('/admin') && verifiedRole !== 'admin') {
+      const target = verifiedRole === 'teacher' ? '/teacher/dashboard' : '/student/dashboard';
       const redirectUrl = new URL(target, request.url);
       return NextResponse.redirect(redirectUrl);
     }
 
-    // 2. Teacher portal protection: Only teacher or admin role permitted
-    if (path.startsWith('/teacher') && actualRole !== 'teacher' && actualRole !== 'admin') {
+    // 2. Teacher portal protection: Only verified teacher or admin role permitted
+    if (path.startsWith('/teacher') && verifiedRole !== 'teacher' && verifiedRole !== 'admin') {
       const redirectUrl = new URL('/student/dashboard', request.url);
       return NextResponse.redirect(redirectUrl);
     }

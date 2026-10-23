@@ -67,11 +67,6 @@ function RegisterForm() {
       return;
     }
 
-    if (role === 'teacher' && !teacherId.trim()) {
-      setErrorMsg('Please enter your official Teacher ID Number.');
-      return;
-    }
-
     if (!isSupabaseConfigured()) {
       setErrorMsg(
         'Supabase is not yet configured with live credentials in .env.local. Please add your SUPABASE_URL and ANON_KEY first.'
@@ -85,18 +80,24 @@ function RegisterForm() {
       const supabase = createClient();
 
       const userMetadata: Record<string, string> = {
-        full_name: fullName,
+        full_name: fullName.trim(),
         role: role,
-        department: department,
+        department: department.trim(),
       };
 
+      let effectiveTeacherId = '';
       if (role === 'student') {
-        userMetadata.student_id_number = studentId;
-        userMetadata.batch = batch;
+        userMetadata.student_id_number = studentId.trim();
+        userMetadata.batch = batch.trim();
+        userMetadata.section = batch.trim();
+        userMetadata.section_or_batch = batch.trim();
         userMetadata.semester = semester;
+        userMetadata.program = 'B.Sc. in Computer Science & Engineering';
       } else {
-        userMetadata.teacher_id_number = teacherId;
+        effectiveTeacherId = teacherId.trim() || `PUB-FAC-${Math.floor(100 + Math.random() * 900)}`;
+        userMetadata.teacher_id_number = effectiveTeacherId;
         userMetadata.designation = designation;
+        userMetadata.approval_status = 'pending';
       }
 
       const { data, error } = await supabase.auth.signUp({
@@ -113,15 +114,42 @@ function RegisterForm() {
       }
 
       if (data.user) {
+        if (role === 'teacher' && typeof window !== 'undefined') {
+          try {
+            const storedTeachers = JSON.parse(localStorage.getItem('pending_teachers') || '[]');
+            const teacherRecord = {
+              id: data.user.id || `teacher_${Date.now()}`,
+              name: fullName,
+              email: email.trim(),
+              role: 'teacher',
+              identifier: effectiveTeacherId,
+              department: department,
+              designation: designation,
+              status: 'pending',
+              created_at: new Date().toISOString().split('T')[0],
+            };
+            const filtered = storedTeachers.filter((t: any) => t.email !== email.trim());
+            localStorage.setItem('pending_teachers', JSON.stringify([...filtered, teacherRecord]));
+          } catch {
+            // Ignore storage errors
+          }
+        }
+
         // Check if email confirmation is required by Supabase
         if (data.session) {
-          setSuccessMsg('Registration successful! Redirecting to your dashboard...');
+          setSuccessMsg(
+            role === 'teacher'
+              ? 'Registration submitted! Your faculty account is pending Admin approval. Redirecting to dashboard...'
+              : 'Registration successful! Redirecting to your dashboard...'
+          );
           setTimeout(() => {
             router.push(`/${role}/dashboard`);
           }, 1500);
         } else {
           setSuccessMsg(
-            'Registration successful! Please check your email inbox to verify your account before logging in.'
+            role === 'teacher'
+              ? 'Registration submitted with Pending approval status! Please verify your email inbox before logging in.'
+              : 'Registration successful! Please check your email inbox to verify your account before logging in.'
           );
         }
       }
@@ -207,13 +235,15 @@ function RegisterForm() {
           )}
 
           {/* Form */}
-          <form onSubmit={handleRegister} className="space-y-5">
+          <form onSubmit={handleRegister} className="space-y-5" autoComplete="on">
             {/* Full Name */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">
+              <label htmlFor="student-full-name" className="block text-xs font-semibold text-slate-300 mb-2">
                 Full Name <span className="text-cyan-400">*</span>
               </label>
               <input
+                id="student-full-name"
+                name="fullName"
                 type="text"
                 required
                 value={fullName}
@@ -226,10 +256,12 @@ function RegisterForm() {
 
             {/* Email Address */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">
+              <label htmlFor="student-email" className="block text-xs font-semibold text-slate-300 mb-2">
                 Institutional / Personal Email <span className="text-cyan-400">*</span>
               </label>
               <input
+                id="student-email"
+                name="email"
                 type="email"
                 required
                 value={email}
@@ -242,99 +274,152 @@ function RegisterForm() {
 
             {/* Student Specific Fields */}
             {role === 'student' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-2">
-                    Student ID <span className="text-cyan-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={studentId}
-                    onChange={(e) => setStudentId(e.target.value)}
-                    placeholder="e.g. PUB-CSE-YYYY-XXX"
-                    className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
-                  />
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="student-id" className="block text-xs font-semibold text-slate-300 mb-2">
+                      Student ID <span className="text-cyan-400">*</span>
+                    </label>
+                    <input
+                      id="student-id"
+                      name="studentId"
+                      type="text"
+                      required
+                      value={studentId}
+                      onChange={(e) => setStudentId(e.target.value)}
+                      placeholder="e.g. PUB-CSE-YYYY-XXX"
+                      className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                      autoComplete="off"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="student-batch" className="block text-xs font-semibold text-slate-300 mb-2">
+                      Academic Batch <span className="text-cyan-400">*</span>
+                    </label>
+                    <input
+                      id="student-batch"
+                      name="batch"
+                      type="text"
+                      required
+                      value={batch}
+                      onChange={(e) => setBatch(e.target.value)}
+                      placeholder="e.g. Spring 2026 / 12th Batch"
+                      className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                      autoComplete="off"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-2">
-                    Semester
-                  </label>
-                  <select
-                    value={semester}
-                    onChange={(e) => setSemester(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-cyan-400 transition-colors"
-                  >
-                    <option value="1st Semester">1st Semester</option>
-                    <option value="2nd Semester">2nd Semester</option>
-                    <option value="3rd Semester">3rd Semester</option>
-                    <option value="4th Semester">4th Semester</option>
-                    <option value="5th Semester">5th Semester</option>
-                    <option value="6th Semester">6th Semester</option>
-                    <option value="7th Semester">7th Semester</option>
-                    <option value="8th Semester">8th Semester</option>
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="student-semester" className="block text-xs font-semibold text-slate-300 mb-2">
+                      Semester
+                    </label>
+                    <select
+                      id="student-semester"
+                      name="semester"
+                      value={semester}
+                      onChange={(e) => setSemester(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                      autoComplete="off"
+                    >
+                      <option value="1st Semester">1st Semester</option>
+                      <option value="2nd Semester">2nd Semester</option>
+                      <option value="3rd Semester">3rd Semester</option>
+                      <option value="4th Semester">4th Semester</option>
+                      <option value="5th Semester">5th Semester</option>
+                      <option value="6th Semester">6th Semester</option>
+                      <option value="7th Semester">7th Semester</option>
+                      <option value="8th Semester">8th Semester</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="student-department" className="block text-xs font-semibold text-slate-300 mb-2">
+                      Department
+                    </label>
+                    <input
+                      id="student-department"
+                      name="department"
+                      type="text"
+                      readOnly
+                      value={department}
+                      className="w-full px-4 py-3 rounded-xl bg-navy-900/50 border border-slate-800 text-slate-400 text-sm cursor-not-allowed"
+                      autoComplete="off"
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* Teacher Specific Fields */}
             {role === 'teacher' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="teacher-id" className="block text-xs font-semibold text-slate-300 mb-2">
+                      Teacher / Faculty ID <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      id="teacher-id"
+                      name="teacherId"
+                      type="text"
+                      value={teacherId}
+                      onChange={(e) => setTeacherId(e.target.value)}
+                      placeholder="e.g. PUB-FAC-XXX (optional, auto-assigned if blank)"
+                      className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                      autoComplete="off"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="teacher-designation" className="block text-xs font-semibold text-slate-300 mb-2">
+                      Designation
+                    </label>
+                    <select
+                      id="teacher-designation"
+                      name="designation"
+                      value={designation}
+                      onChange={(e) => setDesignation(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                      autoComplete="off"
+                    >
+                      <option value="Lecturer">Lecturer</option>
+                      <option value="Assistant Professor">Assistant Professor</option>
+                      <option value="Associate Professor">Associate Professor</option>
+                      <option value="Professor">Professor</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-2">
-                    Teacher / Faculty ID <span className="text-cyan-400">*</span>
+                  <label htmlFor="teacher-department" className="block text-xs font-semibold text-slate-300 mb-2">
+                    Department
                   </label>
                   <input
+                    id="teacher-department"
+                    name="department"
                     type="text"
-                    required
-                    value={teacherId}
-                    onChange={(e) => setTeacherId(e.target.value)}
-                    placeholder="e.g. PUB-FAC-XXX"
-                    className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                    readOnly
+                    value={department}
+                    className="w-full px-4 py-3 rounded-xl bg-navy-900/50 border border-slate-800 text-slate-400 text-sm cursor-not-allowed"
+                    autoComplete="off"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-2">
-                    Designation
-                  </label>
-                  <select
-                    value={designation}
-                    onChange={(e) => setDesignation(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-navy-900 border border-slate-700/80 text-white text-sm focus:outline-none focus:border-cyan-400 transition-colors"
-                  >
-                    <option value="Lecturer">Lecturer</option>
-                    <option value="Assistant Professor">Assistant Professor</option>
-                    <option value="Associate Professor">Associate Professor</option>
-                    <option value="Professor">Professor</option>
-                  </select>
-                </div>
-              </div>
+              </>
             )}
-
-            {/* Department (Common) */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">
-                Department
-              </label>
-              <input
-                type="text"
-                disabled
-                value={department}
-                className="w-full px-4 py-3 rounded-xl bg-navy-900/50 border border-slate-800 text-slate-400 text-sm cursor-not-allowed"
-              />
-            </div>
 
             {/* Passwords */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">
+                <label htmlFor="register-password" className="block text-xs font-semibold text-slate-300 mb-2">
                   Password <span className="text-cyan-400">*</span>
                 </label>
                 <div className="relative">
                   <input
+                    id="register-password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
                     required
                     value={password}
@@ -355,11 +440,13 @@ function RegisterForm() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-2">
+                <label htmlFor="register-confirm-password" className="block text-xs font-semibold text-slate-300 mb-2">
                   Confirm Password <span className="text-cyan-400">*</span>
                 </label>
                 <div className="relative">
                   <input
+                    id="register-confirm-password"
+                    name="confirmPassword"
                     type={showConfirmPassword ? 'text' : 'password'}
                     required
                     value={confirmPassword}

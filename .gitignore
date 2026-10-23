@@ -70,3 +70,6 @@ models/
 # Backup Archives
 *.zip
 
+# Supabase Temporary CLI files
+.temp/
+supabase/.temp/

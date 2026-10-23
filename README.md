@@ -1,6 +1,6 @@
-# PUB-AttendEye 👁️🎓
+# PUB-AttendEye 👁️🎓 (Version 2.0)
 
-**PUB-AttendEye** is an AI-powered automated attendance monitoring and management system designed for educational institutions. It utilizes facial recognition technology to streamline student and faculty attendance with real-time verification, role-based dashboards (Student, Teacher, Admin), and secure reporting.
+**PUB-AttendEye v2.0** is an AI-powered automated attendance monitoring and management system designed for educational institutions. It utilizes facial recognition technology to streamline student and faculty attendance with real-time verification, role-based dashboards (Student, Teacher, Admin), teacher approval workflows, biometric consent controls, and secure reporting.
 
 ---
 

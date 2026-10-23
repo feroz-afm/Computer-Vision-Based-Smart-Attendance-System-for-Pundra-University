@@ -58,6 +58,7 @@ create table if not exists public.teachers (
   teacher_id_number text not null unique, -- e.g. "PUB-FAC-014"
   department text not null default 'Computer Science & Engineering',
   designation text not null default 'Lecturer',
+  approval_status text not null check (approval_status in ('pending', 'approved', 'rejected')) default 'pending',
   created_at timestamptz default timezone('utc'::text, now()) not null
 );
 
@@ -196,8 +197,8 @@ create table if not exists public.student_consent (
 create table if not exists public.face_enrollments (
   id uuid primary key default gen_random_uuid(),
   student_id uuid references public.students(id) on delete cascade not null unique,
-  embedding_vector float8[] not null, -- 128D or 512D biometric vector
-  model_version text not null default 'v1.0-facenet',
+  embedding_vector float8[] not null, -- 128D OpenCV SFace biometric vector
+  model_version text not null check (model_version = 'v1.0-sface') default 'v1.0-sface',
   samples_count int not null default 1,
   is_active boolean default true,
   registered_at timestamptz default timezone('utc'::text, now()) not null
@@ -287,8 +288,11 @@ create or replace function public.is_teacher()
 returns boolean as $$
 begin
   return exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'teacher'
+    select 1 from public.profiles p
+    join public.teachers t on t.profile_id = p.id
+    where p.id = auth.uid()
+      and p.role = 'teacher'
+      and t.approval_status = 'approved'
   );
 end;
 $$ language plpgsql security definer set search_path = public, pg_temp;
@@ -378,9 +382,10 @@ create policy "Admins manage teachers"
 
 -- Courses & Semesters Policies
 drop policy if exists "Authenticated users view courses" on public.courses;
-create policy "Authenticated users view courses"
+drop policy if exists "Anyone can view courses" on public.courses;
+create policy "Anyone can view courses"
   on public.courses for select
-  to authenticated
+  to authenticated, anon
   using (true);
 
 drop policy if exists "Admins manage courses" on public.courses;
@@ -390,15 +395,17 @@ create policy "Admins manage courses"
   using (public.is_admin());
 
 drop policy if exists "View semesters and sections" on public.semesters;
-create policy "View semesters and sections"
+drop policy if exists "Anyone can view semesters" on public.semesters;
+create policy "Anyone can view semesters"
   on public.semesters for select
-  to authenticated
+  to authenticated, anon
   using (true);
 
 drop policy if exists "View sections" on public.sections;
-create policy "View sections"
+drop policy if exists "Anyone can view sections" on public.sections;
+create policy "Anyone can view sections"
   on public.sections for select
-  to authenticated
+  to authenticated, anon
   using (true);
 
 -- Teacher-Course Assignments Policies (CRITICAL REQUIREMENT #5)
@@ -490,11 +497,15 @@ create policy "Teachers mark attendance only for own sessions"
   to authenticated
   with check (
     public.is_admin()
-    or exists (
-      select 1 from public.class_sessions cs
-      join public.teachers t on cs.teacher_id = t.id
-      where cs.id = attendance_records.session_id
-      and t.profile_id = auth.uid()
+    or (
+      public.is_teacher()
+      and exists (
+        select 1 from public.class_sessions cs
+        join public.teachers t on cs.teacher_id = t.id
+        where cs.id = attendance_records.session_id
+        and t.profile_id = auth.uid()
+        and t.approval_status = 'approved'
+      )
     )
   );
 
@@ -504,11 +515,15 @@ create policy "Teachers update attendance only for own sessions"
   to authenticated
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.class_sessions cs
-      join public.teachers t on cs.teacher_id = t.id
-      where cs.id = attendance_records.session_id
-      and t.profile_id = auth.uid()
+    or (
+      public.is_teacher()
+      and exists (
+        select 1 from public.class_sessions cs
+        join public.teachers t on cs.teacher_id = t.id
+        where cs.id = attendance_records.session_id
+        and t.profile_id = auth.uid()
+        and t.approval_status = 'approved'
+      )
     )
   );
 
@@ -523,7 +538,10 @@ drop policy if exists "Insert audit logs on correction" on public.attendance_aud
 create policy "Insert audit logs on correction"
   on public.attendance_audit_logs for insert
   to authenticated
-  with check (auth.uid() = changed_by or public.is_admin());
+  with check (
+    (auth.uid() = changed_by and (public.is_teacher() or public.is_admin()))
+    or public.is_admin()
+  );
 
 -- Settings Policies
 drop policy if exists "Anyone authenticated can view settings" on public.attendance_settings;
@@ -537,6 +555,210 @@ create policy "Admins manage settings"
   on public.attendance_settings for all
   to authenticated
   using (public.is_admin());
+
+-- ------------------------------------------------------------------------------
+-- Student Consent Policies (Requirement #9)
+-- ------------------------------------------------------------------------------
+drop policy if exists "Students view own consent record" on public.student_consent;
+create policy "Students view own consent record"
+  on public.student_consent for select
+  to authenticated
+  using (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  );
+
+drop policy if exists "Students insert or update own consent record" on public.student_consent;
+create policy "Students insert or update own consent record"
+  on public.student_consent for insert
+  to authenticated
+  with check (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  );
+
+drop policy if exists "Students modify own consent record" on public.student_consent;
+create policy "Students modify own consent record"
+  on public.student_consent for update
+  to authenticated
+  using (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  )
+  with check (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  );
+
+-- ------------------------------------------------------------------------------
+-- Face Enrollments Policies & Biometric Protection
+-- ------------------------------------------------------------------------------
+drop policy if exists "Students view own face enrollment status" on public.face_enrollments;
+create policy "Students view own face enrollment status"
+  on public.face_enrollments for select
+  to authenticated
+  using (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  );
+
+drop policy if exists "Students insert own face enrollment with consent" on public.face_enrollments;
+create policy "Students insert own face enrollment with consent"
+  on public.face_enrollments for insert
+  to authenticated
+  with check (
+    (
+      student_id in (select id from public.students where profile_id = auth.uid())
+      and exists (
+        select 1 from public.student_consent sc
+        where sc.student_id = face_enrollments.student_id
+        and sc.consent_given = true
+        and sc.withdrawn_at is null
+      )
+    )
+    or public.is_admin()
+  );
+
+drop policy if exists "Students update own face enrollment with consent" on public.face_enrollments;
+create policy "Students update own face enrollment with consent"
+  on public.face_enrollments for update
+  to authenticated
+  using (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  )
+  with check (
+    (
+      student_id in (select id from public.students where profile_id = auth.uid())
+      and exists (
+        select 1 from public.student_consent sc
+        where sc.student_id = face_enrollments.student_id
+        and sc.consent_given = true
+        and sc.withdrawn_at is null
+      )
+    )
+    or public.is_admin()
+  );
+
+drop policy if exists "Students delete own face enrollment upon withdrawal" on public.face_enrollments;
+create policy "Students delete own face enrollment upon withdrawal"
+  on public.face_enrollments for delete
+  to authenticated
+  using (
+    student_id in (select id from public.students where profile_id = auth.uid())
+    or public.is_admin()
+  );
+
+-- ------------------------------------------------------------------------------
+-- Attendance Review Queue Policies (Uncertain Match Review)
+-- ------------------------------------------------------------------------------
+drop policy if exists "Teachers and Admins view review queue" on public.attendance_review_queue;
+create policy "Teachers and Admins view review queue"
+  on public.attendance_review_queue for select
+  to authenticated
+  using (
+    public.is_admin()
+    or (
+      public.is_teacher()
+      and exists (
+        select 1 from public.class_sessions cs
+        join public.teachers t on cs.teacher_id = t.id
+        where cs.id = attendance_review_queue.session_id
+        and t.profile_id = auth.uid()
+        and t.approval_status = 'approved'
+      )
+    )
+  );
+
+drop policy if exists "Teachers and Admins update review queue" on public.attendance_review_queue;
+create policy "Teachers and Admins update review queue"
+  on public.attendance_review_queue for update
+  to authenticated
+  using (
+    public.is_admin()
+    or (
+      public.is_teacher()
+      and exists (
+        select 1 from public.class_sessions cs
+        join public.teachers t on cs.teacher_id = t.id
+        where cs.id = attendance_review_queue.session_id
+        and t.profile_id = auth.uid()
+        and t.approval_status = 'approved'
+      )
+    )
+  );
+
+drop policy if exists "Teachers insert review queue for own sessions" on public.attendance_review_queue;
+create policy "Teachers insert review queue for own sessions"
+  on public.attendance_review_queue for insert
+  to authenticated
+  with check (
+    public.is_admin()
+    or (
+      public.is_teacher()
+      and exists (
+        select 1 from public.class_sessions cs
+        join public.teachers t on cs.teacher_id = t.id
+        where cs.id = attendance_review_queue.session_id
+        and t.profile_id = auth.uid()
+        and t.approval_status = 'approved'
+      )
+    )
+  );
+
+-- ------------------------------------------------------------------------------
+-- Trigger: Auto-sync students.face_registered
+-- ------------------------------------------------------------------------------
+create or replace function public.sync_student_face_registered_flag()
+returns trigger as $$
+begin
+  if (TG_OP = 'INSERT' or TG_OP = 'UPDATE') then
+    update public.students
+    set face_registered = (new.is_active = true)
+    where id = new.student_id;
+    return new;
+  elsif (TG_OP = 'DELETE') then
+    update public.students
+    set face_registered = false
+    where id = old.student_id;
+    return old;
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer set search_path = public, pg_temp;
+
+drop trigger if exists tr_sync_student_face_registered on public.face_enrollments;
+create trigger tr_sync_student_face_registered
+  after insert or update or delete on public.face_enrollments
+  for each row execute function public.sync_student_face_registered_flag();
+
+-- ------------------------------------------------------------------------------
+-- Admin Function: Teacher Approval Status
+-- ------------------------------------------------------------------------------
+create or replace function public.set_teacher_approval_status(target_teacher_id uuid, new_status text)
+returns text as $$
+begin
+  if not public.is_admin() then
+    raise exception 'Unauthorized: Only an Administrator can approve or reject teacher applications.';
+  end if;
+
+  if new_status not in ('pending', 'approved', 'rejected') then
+    raise exception 'Invalid approval status: must be pending, approved, or rejected.';
+  end if;
+
+  update public.teachers
+  set approval_status = new_status
+  where id = target_teacher_id;
+
+  if not found then
+    return 'Error: Teacher record not found for ID ' || target_teacher_id::text;
+  end if;
+
+  return 'Success: Teacher approval status successfully set to ' || new_status;
+end;
+$$ language plpgsql security definer set search_path = public, pg_temp;
+
+grant execute on function public.set_teacher_approval_status(uuid, text) to authenticated;
 
 -- ==============================================================================
 -- 17. SECURE USER CREATION TRIGGER & ROLE HARDENING
@@ -586,18 +808,20 @@ begin
     );
   end if;
 
-  -- Teacher initialization
+  -- Teacher initialization: Default to 'pending' approval
   if assigned_role = 'teacher' then
     insert into public.teachers (
       profile_id,
       teacher_id_number,
       department,
-      designation
+      designation,
+      approval_status
     ) values (
       new.id,
       coalesce(new.raw_user_meta_data->>'teacher_id_number', 'PUB-FAC-' || substr(new.id::text, 1, 8)),
       coalesce(new.raw_user_meta_data->>'department', 'Computer Science & Engineering'),
-      coalesce(new.raw_user_meta_data->>'designation', 'Lecturer')
+      coalesce(new.raw_user_meta_data->>'designation', 'Lecturer'),
+      'pending'
     );
   end if;
 

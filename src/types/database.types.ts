@@ -32,6 +32,7 @@ export interface Teacher {
   teacher_id_number: string;
   department: string;
   designation: string;
+  approval_status: 'pending' | 'approved' | 'rejected';
   created_at: string;
   profile?: Profile;
 }

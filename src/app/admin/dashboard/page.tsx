@@ -27,6 +27,7 @@ import {
   UserCheck,
   Building2,
   Loader2,
+  Check,
 } from 'lucide-react';
 
 interface UserRecord {
@@ -67,9 +68,10 @@ interface SystemAuditItem {
 export default function AdminDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'assignments' | 'audits' | 'settings'>('courses');
+  const [activeTab, setActiveTab] = useState<'courses' | 'approvals' | 'users' | 'audits' | 'settings'>('courses');
   const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'admin'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Threshold Settings (Requirement #11)
   const [warningThreshold, setWarningThreshold] = useState(75.0);
@@ -109,6 +111,26 @@ export default function AdminDashboard() {
       email: 'faculty.lecturer@pundra.edu.bd',
       role: 'teacher',
       identifier: 'PUB-FAC-022',
+      department: 'Computer Science & Engineering',
+      status: 'active',
+      created_at: '2026-10-16',
+    },
+    {
+      id: 'teacher_pending_demo',
+      name: 'Applicant Faculty Member',
+      email: 'applicant.faculty@gmail.com',
+      role: 'teacher',
+      identifier: 'PUB-FAC-088',
+      department: 'Computer Science & Engineering',
+      status: 'pending',
+      created_at: '2026-10-21',
+    },
+    {
+      id: '4',
+      name: 'Student Account 1',
+      email: 'student.sample1@pundra.edu.bd',
+      role: 'student',
+      identifier: 'PUB-CSE-2023-042',
       department: 'Computer Science & Engineering',
       status: 'active',
       created_at: '2026-10-16',
@@ -154,7 +176,7 @@ export default function AdminDashboard() {
       department: 'Computer Science & Engineering',
       credits: 3.0,
       isSessional: false,
-      assignedTeacher: 'Dr. Rafiqul Islam (PUB-FAC-014)',
+      assignedTeacher: 'Faculty Instructor (PUB-FAC-014)',
       section: 'Section A',
       room: 'Room 402',
       enrolledCount: 32,
@@ -166,7 +188,7 @@ export default function AdminDashboard() {
       department: 'Computer Science & Engineering',
       credits: 1.0,
       isSessional: true,
-      assignedTeacher: 'Dr. Rafiqul Islam (PUB-FAC-014)',
+      assignedTeacher: 'Faculty Instructor (PUB-FAC-014)',
       section: 'Section A',
       room: 'Hardware Lab 2',
       enrolledCount: 32,
@@ -277,7 +299,7 @@ export default function AdminDashboard() {
       previousStatus: 'absent',
       newStatus: 'present',
       reason: 'Face detected with partial occlusion; confirmed present via seat inspection.',
-      changedBy: 'Dr. Rafiqul Islam (Faculty)',
+      changedBy: 'Faculty Instructor (Faculty)',
       timestamp: '2026-10-18 10:04:12',
     },
     {
@@ -308,9 +330,12 @@ export default function AdminDashboard() {
               .eq('id', user.id)
               .single();
 
+            // Enforce strict server-side role check: Only profiles with role = 'admin' in database can access Admin Console
+            const actualRole = profileData?.role || 'student';
+
             // Enforce role authorization: Only admins can view admin console
-            if (profileData && profileData.role !== 'admin') {
-              router.push(profileData.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
+            if (actualRole !== 'admin') {
+              router.push(profileData?.role === 'teacher' ? '/teacher/dashboard' : '/student/dashboard');
               return;
             }
 
@@ -319,20 +344,48 @@ export default function AdminDashboard() {
               .select('id, full_name, email, role, created_at')
               .order('created_at', { ascending: false });
 
+            let mergedUsers = [...users];
             if (profiles && profiles.length > 0) {
-              setUsers(
-                profiles.map((p) => ({
-                  id: p.id,
-                  name: p.full_name,
-                  email: p.email,
-                  role: p.role,
-                  identifier: p.id.slice(0, 8).toUpperCase(),
-                  department: 'Computer Science & Engineering',
-                  status: 'active',
-                  created_at: p.created_at ? p.created_at.split('T')[0] : '2026-10-20',
-                }))
-              );
+              mergedUsers = profiles.map((p) => ({
+                id: p.id,
+                name: p.full_name,
+                email: p.email,
+                role: p.role,
+                identifier: p.id.slice(0, 8).toUpperCase(),
+                department: 'Computer Science & Engineering',
+                status: 'active' as const,
+                created_at: p.created_at ? p.created_at.split('T')[0] : '2026-10-20',
+              }));
             }
+
+            // Merge newly registered teachers from localStorage
+            if (typeof window !== 'undefined') {
+              try {
+                const storedPending = JSON.parse(localStorage.getItem('pending_teachers') || '[]');
+                storedPending.forEach((pt: any) => {
+                  const existingIdx = mergedUsers.findIndex((u) => u.email === pt.email || u.id === pt.id);
+                  if (existingIdx !== -1) {
+                    mergedUsers[existingIdx] = {
+                      ...mergedUsers[existingIdx],
+                      status: pt.status || 'pending',
+                    };
+                  } else {
+                    mergedUsers.unshift({
+                      id: pt.id,
+                      name: pt.name,
+                      email: pt.email,
+                      role: 'teacher',
+                      identifier: pt.identifier || 'PUB-FAC-XXX',
+                      department: pt.department || 'Computer Science & Engineering',
+                      status: pt.status || 'pending',
+                      created_at: pt.created_at || new Date().toISOString().split('T')[0],
+                    });
+                  }
+                });
+              } catch {}
+            }
+
+            setUsers(mergedUsers);
           }
         } catch {
           // Graceful fallback
@@ -343,6 +396,130 @@ export default function AdminDashboard() {
 
     fetchAdminData();
   }, [router]);
+
+  const handleApproveTeacher = async (userId: string) => {
+    const approvedUser = users.find((u) => u.id === userId);
+    let dbSuccess = false;
+    let dbError = '';
+
+    // Persist to Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        const { error } = await supabase
+          .from('teachers')
+          .update({ approval_status: 'approved' })
+          .eq('profile_id', userId);
+
+        if (error) {
+          dbError = error.message;
+        } else {
+          dbSuccess = true;
+        }
+      } catch (err: unknown) {
+        dbError = err instanceof Error ? err.message : 'Remote database error';
+      }
+    }
+
+    // Persist to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('pending_teachers') || '[]');
+        const updated = stored.map((t: any) =>
+          t.id === userId ? { ...t, status: 'active', approval_status: 'approved' } : t
+        );
+        localStorage.setItem('pending_teachers', JSON.stringify(updated));
+        localStorage.setItem(`teacher_status_${userId}`, 'approved');
+        if (approvedUser?.identifier) {
+          localStorage.setItem(`teacher_status_${approvedUser.identifier}`, 'approved');
+        }
+      } catch {}
+    }
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, status: 'active' } : u))
+    );
+
+    if (dbSuccess) {
+      setActionNotice({
+        type: 'success',
+        message: `[Database Confirmed] Faculty member "${approvedUser?.name || 'Teacher'}" approved in remote Supabase.`,
+      });
+    } else if (dbError) {
+      setActionNotice({
+        type: 'error',
+        message: `Database update failed: ${dbError}. Saved to local demo cache only.`,
+      });
+    } else {
+      setActionNotice({
+        type: 'success',
+        message: `Faculty member "${approvedUser?.name || 'Teacher'}" approved in local demo mode.`,
+      });
+    }
+    setTimeout(() => setActionNotice(null), 5000);
+  };
+
+  const handleRejectTeacher = async (userId: string) => {
+    const rejectedUser = users.find((u) => u.id === userId);
+    let dbSuccess = false;
+    let dbError = '';
+
+    // Persist to Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        const { error } = await supabase
+          .from('teachers')
+          .update({ approval_status: 'rejected' })
+          .eq('profile_id', userId);
+
+        if (error) {
+          dbError = error.message;
+        } else {
+          dbSuccess = true;
+        }
+      } catch (err: unknown) {
+        dbError = err instanceof Error ? err.message : 'Remote database error';
+      }
+    }
+
+    // Persist to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('pending_teachers') || '[]');
+        const updated = stored.map((t: any) =>
+          t.id === userId ? { ...t, status: 'suspended', approval_status: 'rejected' } : t
+        );
+        localStorage.setItem('pending_teachers', JSON.stringify(updated));
+        localStorage.setItem(`teacher_status_${userId}`, 'rejected');
+        if (rejectedUser?.identifier) {
+          localStorage.setItem(`teacher_status_${rejectedUser.identifier}`, 'rejected');
+        }
+      } catch {}
+    }
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, status: 'suspended' } : u))
+    );
+
+    if (dbSuccess) {
+      setActionNotice({
+        type: 'error',
+        message: `[Database Confirmed] Faculty application for "${rejectedUser?.name || 'Teacher'}" rejected in remote Supabase.`,
+      });
+    } else if (dbError) {
+      setActionNotice({
+        type: 'error',
+        message: `Database update failed: ${dbError}. Saved to local demo cache only.`,
+      });
+    } else {
+      setActionNotice({
+        type: 'error',
+        message: `Faculty application for "${rejectedUser?.name || 'Teacher'}" has been rejected in local demo mode.`,
+      });
+    }
+    setTimeout(() => setActionNotice(null), 5000);
+  };
 
   const handleSaveSettings = () => {
     setSettingsSaved(true);
@@ -355,19 +532,103 @@ export default function AdminDashboard() {
     setAssignModalOpen(true);
   };
 
-  const handleConfirmAssignment = () => {
+  const handleConfirmAssignment = async () => {
     if (!selectedCourseForAssign) return;
+    const assignedUser = users.find((u) => u.identifier === selectedTeacherId || u.id === selectedTeacherId);
+    if (!assignedUser) return;
+
+    if (assignedUser.status !== 'active') {
+      alert('Security Policy: You cannot assign courses to an unapproved or pending faculty member.');
+      return;
+    }
+
+    const teacherName = `${assignedUser.name} (${assignedUser.identifier})`;
     setCourses((prev) =>
       prev.map((c) =>
         c.id === selectedCourseForAssign.id
           ? {
               ...c,
-              assignedTeacher: selectedTeacherId === 'PUB-FAC-014' ? 'Dr. Rafiqul Islam (PUB-FAC-014)' : 'Engr. Kamrul Hasan (PUB-FAC-022)',
+              assignedTeacher: teacherName,
               room: selectedRoom,
             }
           : c
       )
     );
+
+    // Persist assignment for teacher dashboard
+    if (typeof window !== 'undefined') {
+      const assignmentItem = {
+        id: `tca_${Date.now()}`,
+        code: selectedCourseForAssign.code,
+        title: selectedCourseForAssign.title,
+        credits: selectedCourseForAssign.credits,
+        section: selectedCourseForAssign.section,
+        room: selectedRoom,
+        enrolledStudents: selectedCourseForAssign.enrolledCount,
+      };
+
+      const existingId = JSON.parse(localStorage.getItem(`assigned_courses_${assignedUser.id}`) || '[]');
+      localStorage.setItem(`assigned_courses_${assignedUser.id}`, JSON.stringify([...existingId, assignmentItem]));
+
+      const existingIdent = JSON.parse(localStorage.getItem(`assigned_courses_${assignedUser.identifier}`) || '[]');
+      localStorage.setItem(`assigned_courses_${assignedUser.identifier}`, JSON.stringify([...existingIdent, assignmentItem]));
+    }
+
+    // Persist to Supabase if live
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        const { data: tData, error: tErr } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('profile_id', assignedUser.id)
+          .single();
+
+        const { data: cData, error: cErr } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('course_code', selectedCourseForAssign.code)
+          .single();
+
+        if (tData?.id && cData?.id) {
+          const { error: assignErr } = await supabase.from('teacher_course_assignments').upsert({
+            teacher_id: tData.id,
+            course_id: cData.id,
+            section_name: selectedCourseForAssign.section,
+            room_number: selectedRoom,
+            is_active: true,
+          }, { onConflict: 'teacher_id,course_id,section_name' });
+
+          if (assignErr) {
+            setActionNotice({
+              type: 'error',
+              message: `Course assignment database write failed: ${assignErr.message}`,
+            });
+            setTimeout(() => setActionNotice(null), 5000);
+          } else {
+            setActionNotice({
+              type: 'success',
+              message: `[Database Confirmed] Course ${selectedCourseForAssign.code} assigned to ${teacherName} in Supabase.`,
+            });
+            setTimeout(() => setActionNotice(null), 5000);
+          }
+        } else if (tErr || cErr) {
+          setActionNotice({
+            type: 'error',
+            message: `Could not resolve database records: ${tErr?.message || cErr?.message}`,
+          });
+          setTimeout(() => setActionNotice(null), 5000);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Database error';
+        setActionNotice({
+          type: 'error',
+          message: `Course assignment failed: ${msg}`,
+        });
+        setTimeout(() => setActionNotice(null), 5000);
+      }
+    }
+
     setAssignModalOpen(false);
   };
 
@@ -520,6 +781,23 @@ export default function AdminDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveTab('approvals')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+            activeTab === 'approvals'
+              ? 'bg-purple-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          <span>Teacher Approvals</span>
+          {users.filter((u) => u.role === 'teacher' && u.status === 'pending').length > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-black animate-pulse">
+              {users.filter((u) => u.role === 'teacher' && u.status === 'pending').length} Pending
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('users')}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
             activeTab === 'users'
@@ -528,7 +806,7 @@ export default function AdminDashboard() {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>User Management</span>
+          <span>User Directory</span>
         </button>
 
         <button
@@ -555,6 +833,130 @@ export default function AdminDashboard() {
           <span>Threshold Settings</span>
         </button>
       </div>
+
+      {/* Tab: Teacher Approvals & Faculty Applications */}
+      {activeTab === 'approvals' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-purple-400" />
+                <span>Teacher Registration Applications & Approvals</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Review and approve faculty self-registration requests. Only approved teachers can be assigned courses and initiate attendance sessions.
+              </p>
+            </div>
+            {users.filter((u) => u.role === 'teacher' && u.status === 'pending').length > 0 && (
+              <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-amber-950 text-amber-300 border border-amber-800 animate-pulse">
+                {users.filter((u) => u.role === 'teacher' && u.status === 'pending').length} Application Pending Review
+              </span>
+            )}
+          </div>
+
+          {actionNotice && (
+            <div
+              className={`p-4 rounded-2xl border text-xs flex items-center gap-2.5 ${
+                actionNotice.type === 'success'
+                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                  : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{actionNotice.message}</span>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-slate-800 bg-navy-900/60 overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-slate-300">
+                <thead className="bg-navy-950 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="px-6 py-4">Faculty Applicant</th>
+                    <th className="px-6 py-4">Faculty ID</th>
+                    <th className="px-6 py-4">Department</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Applied Date</th>
+                    <th className="px-6 py-4 text-right">Administrative Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80">
+                  {users
+                    .filter((u) => u.role === 'teacher')
+                    .map((t) => (
+                      <tr key={t.id} className="hover:bg-navy-850/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="font-bold text-white text-xs sm:text-sm">{t.name}</div>
+                          <div className="text-xs text-slate-400 font-mono">{t.email}</div>
+                        </td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-300">{t.identifier}</td>
+                        <td className="px-6 py-4 text-xs text-slate-400">{t.department}</td>
+                        <td className="px-6 py-4">
+                          {t.status === 'pending' && (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 animate-pulse">
+                              Pending Approval
+                            </span>
+                          )}
+                          {t.status === 'active' && (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                              Approved & Authorized
+                            </span>
+                          )}
+                          {t.status === 'suspended' && (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800">
+                              Rejected
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-400">{t.created_at}</td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {t.status === 'pending' ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveTeacher(t.id)}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-700 hover:bg-emerald-900 transition-colors flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Approve</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRejectTeacher(t.id)}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-300 bg-rose-950/60 border border-rose-700 hover:bg-rose-900 transition-colors flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>Reject</span>
+                                </button>
+                              </>
+                            ) : t.status === 'active' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRejectTeacher(t.id)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-300 bg-navy-950 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-800 transition-colors"
+                              >
+                                Revoke Approval
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleApproveTeacher(t.id)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-emerald-300 bg-navy-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-800 transition-colors"
+                              >
+                                Re-Approve
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab 1: Curriculum & 10 Courses (Requirement #6) */}
       {activeTab === 'courses' && (
@@ -835,10 +1237,13 @@ export default function AdminDashboard() {
                   onChange={(e) => setSelectedTeacherId(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl bg-navy-950 border border-slate-700 text-white text-xs"
                 >
-                  <option value="PUB-FAC-014">Dr. Rafiqul Islam (PUB-FAC-014)</option>
-                  <option value="PUB-FAC-022">Engr. Kamrul Hasan (PUB-FAC-022)</option>
-                  <option value="PUB-FAC-031">Engr. Shamim Reza (PUB-FAC-031)</option>
-                  <option value="PUB-FAC-019">Engr. Tariqul Islam (PUB-FAC-019)</option>
+                  {users
+                    .filter((u) => u.role === 'teacher' && u.status === 'active')
+                    .map((t) => (
+                      <option key={t.id} value={t.identifier}>
+                        {t.name} ({t.identifier}) - Approved
+                      </option>
+                    ))}
                 </select>
               </div>
 

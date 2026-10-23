@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner';
@@ -19,14 +18,14 @@ import {
   AlertTriangle,
   Download,
   Filter,
-  FileText,
   Loader2,
   Camera,
   CameraOff,
   Trash2,
-  ShieldAlert,
   Check,
   X,
+  Upload,
+  UserCheck,
 } from 'lucide-react';
 
 interface StudentProfile {
@@ -38,6 +37,7 @@ interface StudentProfile {
   academicYear: string;
   semester: string;
   section: string;
+  avatarUrl?: string | null;
   faceRegistered: boolean;
   consentGiven: boolean;
 }
@@ -48,6 +48,8 @@ interface CourseAttendanceItem {
   title: string;
   credits: number;
   isSessional: boolean;
+  semesterInfo?: string;
+  assignedTeacher: string;
   totalClasses: number;
   attendedClasses: number;
   percentage: number;
@@ -73,250 +75,328 @@ export default function StudentDashboard() {
   const [cameraActive, setCameraActive] = useState(false);
   const [capturedSamples, setCapturedSamples] = useState<string[]>([]);
   const [enrolling, setEnrolling] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [enrollmentNotice, setEnrollmentNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [recordsSource, setRecordsSource] = useState<'database' | 'empty' | 'local_cache'>('empty');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Truthful initial profile state (no hardcoded fake person)
   const [profile, setProfile] = useState<StudentProfile>({
-    name: 'Student Member',
+    name: '',
     email: '',
     studentId: '',
-    program: 'B.Sc. in Computer Science & Engineering',
-    department: 'Computer Science & Engineering',
-    academicYear: '3rd Year',
-    semester: '1st Semester',
-    section: 'Section A',
+    program: '',
+    department: '',
+    academicYear: '',
+    semester: '',
+    section: '',
+    avatarUrl: null,
     faceRegistered: false,
     consentGiven: false,
   });
 
-  // Official 10 courses for CSE 3rd Year 1st Semester
-  const [courses, setCourses] = useState<CourseAttendanceItem[]>([
-    {
-      id: '1',
-      code: 'CSE 2205',
-      title: 'Computer Architecture and Organization',
-      credits: 3.0,
-      isSessional: false,
-      totalClasses: 18,
-      attendedClasses: 16,
-      percentage: 88.9,
-      status: 'eligible',
-    },
-    {
-      id: '2',
-      code: 'CSE 2206',
-      title: 'Computer Architecture and Organization Sessional',
-      credits: 1.0,
-      isSessional: true,
-      totalClasses: 10,
-      attendedClasses: 10,
-      percentage: 100.0,
-      status: 'eligible',
-    },
-    {
-      id: '3',
-      code: 'CSE 3103',
-      title: 'Operating Systems',
-      credits: 3.0,
-      isSessional: false,
-      totalClasses: 20,
-      attendedClasses: 19,
-      percentage: 95.0,
-      status: 'eligible',
-    },
-    {
-      id: '4',
-      code: 'CSE 3104',
-      title: 'Operating Systems Sessional',
-      credits: 1.0,
-      isSessional: true,
-      totalClasses: 10,
-      attendedClasses: 9,
-      percentage: 90.0,
-      status: 'eligible',
-    },
-    {
-      id: '5',
-      code: 'CSE 2201',
-      title: 'Web Engineering',
-      credits: 3.0,
-      isSessional: false,
-      totalClasses: 16,
-      attendedClasses: 11,
-      percentage: 68.8,
-      status: 'warning',
-    },
-    {
-      id: '6',
-      code: 'CSE 2202',
-      title: 'Web Engineering Sessional',
-      credits: 1.0,
-      isSessional: true,
-      totalClasses: 8,
-      attendedClasses: 8,
-      percentage: 100.0,
-      status: 'eligible',
-    },
-    {
-      id: '7',
-      code: 'CSE 3205',
-      title: 'Computer Networking',
-      credits: 3.0,
-      isSessional: false,
-      totalClasses: 18,
-      attendedClasses: 17,
-      percentage: 94.4,
-      status: 'eligible',
-    },
-    {
-      id: '8',
-      code: 'CSE 3206',
-      title: 'Computer Networking Sessional',
-      credits: 1.0,
-      isSessional: true,
-      totalClasses: 10,
-      attendedClasses: 9,
-      percentage: 90.0,
-      status: 'eligible',
-    },
-    {
-      id: '9',
-      code: 'LAW 3201',
-      title: 'Cyber and Intellectual Property Law',
-      credits: 2.0,
-      isSessional: false,
-      totalClasses: 14,
-      attendedClasses: 13,
-      percentage: 92.9,
-      status: 'eligible',
-    },
-    {
-      id: '10',
-      code: 'BUS 3101',
-      title: 'Technology Entrepreneurship for Business',
-      credits: 3.0,
-      isSessional: false,
-      totalClasses: 16,
-      attendedClasses: 15,
-      percentage: 93.8,
-      status: 'eligible',
-    },
-  ]);
-
-  const [logs, setLogs] = useState<AttendanceLog[]>([
-    {
-      id: '1',
-      date: '2026-10-18',
-      courseCode: 'CSE 2205',
-      topic: 'Pipelining & Instruction Level Parallelism',
-      status: 'present',
-      method: 'Face Recognition',
-      confidence: '98.7%',
-    },
-    {
-      id: '2',
-      date: '2026-10-17',
-      courseCode: 'CSE 3103',
-      topic: 'Virtual Memory & Page Replacement',
-      status: 'present',
-      method: 'Face Recognition',
-      confidence: '99.1%',
-    },
-    {
-      id: '3',
-      date: '2026-10-16',
-      courseCode: 'CSE 2201',
-      topic: 'REST API Design & WebSockets',
-      status: 'absent',
-      method: 'Teacher Audit',
-      confidence: 'N/A',
-    },
-    {
-      id: '4',
-      date: '2026-10-15',
-      courseCode: 'CSE 3205',
-      topic: 'Subnetting & BGP Routing Protocols',
-      status: 'present',
-      method: 'Face Recognition',
-      confidence: '97.4%',
-    },
-    {
-      id: '5',
-      date: '2026-10-14',
-      courseCode: 'LAW 3201',
-      topic: 'Digital Security Act & Intellectual Property',
-      status: 'present',
-      method: 'Face Recognition',
-      confidence: '99.0%',
-    },
-    {
-      id: '6',
-      date: '2026-10-13',
-      courseCode: 'BUS 3101',
-      topic: 'Startup Valuation & Pitch Presentations',
-      status: 'present',
-      method: 'Face Recognition',
-      confidence: '98.5%',
-    },
-  ]);
+  // Real enrolled courses and attendance logs (no fabricated demo values)
+  const [courses, setCourses] = useState<CourseAttendanceItem[]>([]);
+  const [logs, setLogs] = useState<AttendanceLog[]>([]);
 
   useEffect(() => {
     const fetchUserData = async () => {
-      if (isSupabaseConfigured()) {
-        try {
-          const supabase = createClient();
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-
-          if (user) {
-            const { data: profileData } = await supabase
-              .from('profiles')
-              .select('full_name, email, role')
-              .eq('id', user.id)
-              .single();
-
-            // Redirect if user has teacher or admin role
-            if (profileData?.role === 'teacher') {
-              router.push('/teacher/dashboard');
-              return;
-            } else if (profileData?.role === 'admin') {
-              router.push('/admin/dashboard');
-              return;
-            }
-
-            const { data: studentData } = await supabase
-              .from('students')
-              .select('student_id_number, program, department, academic_year, semester, section_or_batch, face_registered')
-              .eq('profile_id', user.id)
-              .single();
-
-            if (profileData && studentData) {
-              setProfile((prev) => ({
-                ...prev,
-                name: profileData.full_name,
-                email: profileData.email,
-                studentId: studentData.student_id_number,
-                program: studentData.program || prev.program,
-                department: studentData.department,
-                academicYear: studentData.academic_year || prev.academicYear,
-                semester: studentData.semester || prev.semester,
-                section: studentData.section_or_batch || prev.section,
-                faceRegistered: studentData.face_registered,
-              }));
-            }
-          }
-        } catch {
-          // Fallback to sample data for unconfigured state
-        }
+      if (!isSupabaseConfigured()) {
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          router.push('/login?role=student');
+          return;
+        }
+
+        // 1. Fetch server-verified profile record
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, role, avatar_url')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const actualRole = profileData?.role || 'student';
+
+        // Redirect if user has teacher or admin role
+        if (actualRole === 'teacher') {
+          router.push('/teacher/dashboard');
+          return;
+        } else if (actualRole === 'admin') {
+          router.push('/admin/dashboard');
+          return;
+        }
+
+        // 2. Fetch student record using stable profile UUID
+        let { data: studentData } = await supabase
+          .from('students')
+          .select('*')
+          .eq('profile_id', user.id)
+          .maybeSingle();
+
+        // Self-provision student record if missing from initial trigger
+        if (!studentData && user.user_metadata) {
+          try {
+            const initialStudentNumber =
+              user.user_metadata.student_id_number || `PUB-STU-${user.id.slice(0, 8).toUpperCase()}`;
+            const { data: newStudent } = await supabase
+              .from('students')
+              .insert({
+                profile_id: user.id,
+                student_id_number: initialStudentNumber,
+                program: user.user_metadata.program || 'B.Sc. in Computer Science & Engineering',
+                department: user.user_metadata.department || 'Computer Science & Engineering',
+                academic_year: user.user_metadata.academic_year || '3rd Year',
+                semester: user.user_metadata.semester || '1st Semester',
+                section_or_batch:
+                  user.user_metadata.section_or_batch || user.user_metadata.batch || 'Section A',
+                account_status: 'active',
+              })
+              .select()
+              .maybeSingle();
+
+            if (newStudent) {
+              studentData = newStudent;
+            }
+          } catch {
+            // Handled gracefully below
+          }
+        }
+
+        // 3. Check biometric consent status
+        let consentGiven = false;
+        if (studentData?.id) {
+          try {
+            const { data: consentRow } = await supabase
+              .from('student_consent')
+              .select('consent_given, withdrawn_at')
+              .eq('student_id', studentData.id)
+              .maybeSingle();
+
+            if (consentRow && consentRow.consent_given && !consentRow.withdrawn_at) {
+              consentGiven = true;
+            }
+          } catch {
+            // Consent table optional until initialized
+          }
+        }
+
+        // Derive truthful profile values
+        const derivedName =
+          profileData?.full_name ||
+          user.user_metadata?.full_name ||
+          user.email?.split('@')[0] ||
+          'Student';
+
+        const derivedEmail = profileData?.email || user.email || '';
+
+        setProfile({
+          name: derivedName,
+          email: derivedEmail,
+          studentId: studentData?.student_id_number || 'Not configured',
+          program: studentData?.program || 'B.Sc. in Computer Science & Engineering',
+          department: studentData?.department || 'Computer Science & Engineering',
+          academicYear: studentData?.academic_year || 'Not configured',
+          semester: studentData?.semester || user.user_metadata?.semester || 'Not configured',
+          section: studentData?.section_or_batch || user.user_metadata?.batch || 'Not configured',
+          avatarUrl: profileData?.avatar_url || null,
+          faceRegistered: !!studentData?.face_registered,
+          consentGiven,
+        });
+
+        // 4. Fetch actual enrolled courses for this student
+        let enrolledCoursesList: CourseAttendanceItem[] = [];
+        if (studentData?.id) {
+          try {
+            const { data: enrollmentsData } = await supabase
+              .from('enrollments')
+              .select(`
+                id,
+                section_name,
+                course_id,
+                courses (
+                  id,
+                  course_code,
+                  title,
+                  credits,
+                  is_sessional,
+                  semester_info
+                )
+              `)
+              .eq('student_id', studentData.id)
+              .eq('enrollment_status', 'enrolled');
+
+            if (enrollmentsData && enrollmentsData.length > 0) {
+              // Fetch assigned teacher records for enrolled courses
+              const courseIds = enrollmentsData.map((e: any) => e.courses?.id).filter(Boolean);
+              const assignmentsMap: Record<string, string> = {};
+
+              try {
+                const { data: assignments } = await supabase
+                  .from('teacher_course_assignments')
+                  .select(`
+                    course_id,
+                    section_name,
+                    teachers (
+                      teacher_id_number,
+                      designation,
+                      profiles (
+                        full_name
+                      )
+                    )
+                  `)
+                  .in('course_id', courseIds)
+                  .eq('is_active', true);
+
+                if (assignments) {
+                  assignments.forEach((a: any) => {
+                    const teacherName =
+                      a.teachers?.profiles?.full_name ||
+                      a.teachers?.teacher_id_number ||
+                      'Faculty Member';
+                    assignmentsMap[`${a.course_id}_${a.section_name}`] = teacherName;
+                    assignmentsMap[a.course_id] = teacherName;
+                  });
+                }
+              } catch {
+                // If assignments query fails due to RLS, teacher displays as "Faculty Member"
+              }
+
+              enrolledCoursesList = enrollmentsData
+                .filter((e: any) => e.courses)
+                .map((e: any) => {
+                  const c = e.courses;
+                  const teacher =
+                    assignmentsMap[`${c.id}_${e.section_name}`] ||
+                    assignmentsMap[c.id] ||
+                    'Faculty Member';
+                  return {
+                    id: c.id,
+                    code: c.course_code,
+                    title: c.title,
+                    credits: Number(c.credits) || 3.0,
+                    isSessional: !!c.is_sessional,
+                    semesterInfo: c.semester_info || 'Current Semester',
+                    assignedTeacher: teacher,
+                    totalClasses: 0,
+                    attendedClasses: 0,
+                    percentage: 0,
+                    status: 'eligible' as const,
+                  };
+                });
+            }
+          } catch {
+            // Enrollments query fallback
+          }
+        }
+
+        // 5. Fetch actual attendance records for this student
+        let loadedLogs: AttendanceLog[] = [];
+        if (studentData?.id) {
+          try {
+            const { data: dbRecords } = await supabase
+              .from('attendance_records')
+              .select(`
+                id,
+                status,
+                verification_method,
+                confidence_score,
+                timestamp,
+                class_sessions (
+                  id,
+                  session_date,
+                  topic,
+                  status,
+                  courses (
+                    course_code
+                  )
+                )
+              `)
+              .eq('student_id', studentData.id)
+              .order('timestamp', { ascending: false });
+
+            if (dbRecords && dbRecords.length > 0) {
+              // Exclude cancelled sessions according to university rules
+              const validRecords = dbRecords.filter(
+                (r: any) => r.class_sessions?.status !== 'cancelled'
+              );
+
+              loadedLogs = validRecords.map((r: any) => ({
+                id: r.id,
+                date:
+                  r.class_sessions?.session_date ||
+                  new Date(r.timestamp).toISOString().split('T')[0],
+                courseCode: r.class_sessions?.courses?.course_code || 'N/A',
+                topic: r.class_sessions?.topic || 'Class Lecture Session',
+                status: r.status as 'present' | 'absent' | 'late' | 'excused',
+                method:
+                  r.verification_method === 'face_recognition'
+                    ? 'Face Recognition'
+                    : r.verification_method === 'manual_teacher'
+                    ? 'Teacher Override'
+                    : 'RFID Card',
+                confidence: r.confidence_score
+                  ? `${(r.confidence_score * 100).toFixed(1)}%`
+                  : 'N/A',
+              }));
+
+              setRecordsSource('database');
+            }
+          } catch {
+            // Attendance records query fallback
+          }
+        }
+
+        // 6. Calculate real per-course attendance from loaded logs
+        if (enrolledCoursesList.length > 0) {
+          enrolledCoursesList = enrolledCoursesList.map((course) => {
+            const courseLogs = loadedLogs.filter((l) => l.courseCode === course.code);
+            if (courseLogs.length > 0) {
+              const stats = calculateAttendancePercentage(courseLogs);
+              return {
+                ...course,
+                totalClasses: stats.total,
+                attendedClasses: stats.attended,
+                percentage: stats.percentage,
+                status: stats.status,
+              };
+            }
+            return {
+              ...course,
+              totalClasses: 0,
+              attendedClasses: 0,
+              percentage: 0,
+              status: 'eligible',
+            };
+          });
+        }
+
+        setCourses(enrolledCoursesList);
+        setLogs(loadedLogs);
+        if (loadedLogs.length === 0 && enrolledCoursesList.length === 0) {
+          setRecordsSource('empty');
+        }
+      } catch {
+        // Fallback gracefully on network error
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchUserData();
-  }, []);
+  }, [router]);
 
   const handleLogout = async () => {
     if (isSupabaseConfigured()) {
@@ -327,6 +407,13 @@ export default function StudentDashboard() {
   };
 
   const handleExportCSV = () => {
+    if (logs.length === 0) {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'No attendance records available to export.',
+      });
+      return;
+    }
     const headers = ['Date', 'Course Code', 'Lecture Topic', 'Method', 'Confidence', 'Attendance Status'];
     const rows = logs.map((log) => [
       log.date,
@@ -341,10 +428,108 @@ export default function StudentDashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `PUB_Attendance_${profile.studentId}.csv`);
+    link.setAttribute('download', `PUB_Attendance_${profile.studentId || 'Report'}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleAvatarFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validMimes.includes(file.type)) {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'Invalid file format. Please upload a JPEG, PNG, or WebP photo.',
+      });
+      return;
+    }
+
+    // Validate size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setEnrollmentNotice({
+        type: 'error',
+        text: 'Photo size exceeds 2MB limit. Please select a smaller photo.',
+      });
+      return;
+    }
+
+    setUploadingAvatar(true);
+    setEnrollmentNotice(null);
+
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setEnrollmentNotice({
+          type: 'error',
+          text: 'Session expired. Please log in again to update your profile photo.',
+        });
+        return;
+      }
+
+      let newAvatarUrl: string | null = null;
+
+      // 1. Attempt upload to Supabase Storage bucket 'avatars'
+      try {
+        const fileExt = file.name.split('.').pop() || 'jpg';
+        const filePath = `${user.id}/avatar_${Date.now()}.${fileExt}`;
+        const { error: storageErr } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, file, { upsert: true });
+
+        if (!storageErr) {
+          const { data: publicUrlData } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(filePath);
+          newAvatarUrl = publicUrlData.publicUrl;
+        }
+      } catch {
+        // Storage bucket not configured or permissions pending
+      }
+
+      // 2. Fallback to base64 Data URL if storage bucket is not yet active
+      if (!newAvatarUrl) {
+        newAvatarUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // 3. Update public.profiles row
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({ avatar_url: newAvatarUrl, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+
+      if (updateErr) {
+        setEnrollmentNotice({
+          type: 'error',
+          text: `Failed to update profile record: ${updateErr.message}`,
+        });
+        return;
+      }
+
+      setProfile((prev) => ({ ...prev, avatarUrl: newAvatarUrl }));
+      setEnrollmentNotice({
+        type: 'success',
+        text: 'Profile photo updated successfully!',
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error uploading profile photo';
+      setEnrollmentNotice({ type: 'error', text: msg });
+    } finally {
+      setUploadingAvatar(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleConsentToggle = async () => {
@@ -352,7 +537,7 @@ export default function StudentDashboard() {
     setProfile((prev) => ({
       ...prev,
       consentGiven: newConsent,
-      faceRegistered: newConsent ? prev.faceRegistered : false, // Revoking consent deletes face biometrics
+      faceRegistered: newConsent ? prev.faceRegistered : false,
     }));
     setConsentModalOpen(false);
 
@@ -364,7 +549,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // Camera handling for biometric enrollment
   const startCamera = async () => {
     setEnrollmentNotice(null);
     try {
@@ -433,7 +617,6 @@ export default function StudentDashboard() {
     setEnrollmentNotice(null);
 
     try {
-      // Convert captured base64 data URLs to Blobs for multipart form submission
       const blobPromises = capturedSamples.map(async (dataUrl) => {
         const res = await fetch(dataUrl);
         return res.blob();
@@ -519,10 +702,11 @@ export default function StudentDashboard() {
     );
   }
 
-  // Summary calculations
+  // Summary calculations derived strictly from real records
   const totalClasses = courses.reduce((acc, c) => acc + c.totalClasses, 0);
   const totalAttended = courses.reduce((acc, c) => acc + c.attendedClasses, 0);
-  const overallPercentage = ((totalAttended / totalClasses) * 100).toFixed(1);
+  const overallPercentage =
+    totalClasses > 0 ? ((totalAttended / totalClasses) * 100).toFixed(1) : '0.0';
   const warningCourses = courses.filter((c) => c.status === 'warning' || c.status === 'critical');
 
   const filteredLogs = selectedCourseFilter === 'ALL'
@@ -532,24 +716,60 @@ export default function StudentDashboard() {
   return (
     <div className="min-h-screen pt-28 pb-20 px-6 max-w-7xl mx-auto">
       
-      {/* Top Banner & Status */}
+      {/* Top Connection Banner */}
       <SupabaseStatusBanner />
 
       {/* Header Profile Bar */}
       <div className="p-8 rounded-3xl bg-navy-850/90 border border-slate-700/80 shadow-2xl backdrop-blur-xl mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500/20 to-indigo-500/20 border border-cyan-500/40 p-1 flex items-center justify-center text-cyan-400 shrink-0">
-            <GraduationCap className="w-9 h-9" />
+          {/* Avatar / Profile Photo with Upload Trigger */}
+          <div className="relative group w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-tr from-cyan-500/20 to-indigo-500/20 border border-cyan-500/40 p-0.5 flex items-center justify-center shrink-0">
+            {profile.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatarUrl}
+                alt={profile.name || 'Student Profile'}
+                className="w-full h-full object-cover rounded-2xl"
+              />
+            ) : (
+              <GraduationCap className="w-9 h-9 text-cyan-400" />
+            )}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-[10px] text-cyan-300 font-semibold"
+              title="Upload / Change Profile Photo"
+            >
+              {uploadingAvatar ? (
+                <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+              ) : (
+                <>
+                  <Camera className="w-4 h-4 mb-0.5" />
+                  <span>Change</span>
+                </>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleAvatarFileSelect}
+              className="hidden"
+            />
           </div>
+
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl font-extrabold text-white">{profile.name}</h1>
+              <h1 className="text-2xl font-extrabold text-white">
+                {profile.name || 'Student Account'}
+              </h1>
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-400">
                 Student · {profile.section}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              ID: <span className="text-slate-200 font-semibold">{profile.studentId}</span> · {profile.program}
+              ID: <span className="text-slate-200 font-semibold font-mono">{profile.studentId}</span> · {profile.program}
             </p>
             <p className="text-[11px] text-slate-500">
               {profile.academicYear}, {profile.semester} · Pundra University of Science & Technology
@@ -558,6 +778,15 @@ export default function StudentDashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-200 bg-navy-900 hover:bg-navy-800 border border-slate-700 transition-colors"
+          >
+            <Upload className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{uploadingAvatar ? 'Uploading...' : 'Change Photo'}</span>
+          </button>
+
           <button
             onClick={handleExportCSV}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-200 bg-navy-900 hover:bg-navy-800 border border-slate-700 transition-colors"
@@ -597,9 +826,13 @@ export default function StudentDashboard() {
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
             Overall Attendance
           </div>
-          <div className="text-3xl font-extrabold text-cyan-400">{overallPercentage}%</div>
+          <div className="text-3xl font-extrabold text-cyan-400">
+            {totalClasses > 0 ? `${overallPercentage}%` : 'N/A'}
+          </div>
           <div className="text-xs text-slate-400 mt-1">
-            {totalAttended} of {totalClasses} eligible classes attended
+            {totalClasses > 0
+              ? `${totalAttended} of ${totalClasses} eligible classes attended`
+              : '0 of 0 classes held · No records yet'}
           </div>
         </div>
 
@@ -607,11 +840,39 @@ export default function StudentDashboard() {
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
             Academic Status
           </div>
-          <div className="text-xl font-bold text-emerald-400 flex items-center gap-1.5">
-            <CheckCircle2 className="w-5 h-5 shrink-0" />
-            <span>Eligible for Final Exam</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1">Threshold: &ge; 75.0% required</div>
+          {totalClasses === 0 ? (
+            <>
+              <div className="text-xl font-bold text-slate-400 flex items-center gap-1.5">
+                <Clock className="w-5 h-5 shrink-0 text-slate-500" />
+                <span>No records yet</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">Classes not yet convened</div>
+            </>
+          ) : Number(overallPercentage) >= 75 ? (
+            <>
+              <div className="text-xl font-bold text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                <span>Eligible for Final Exam</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">Threshold: &ge; 75.0% required</div>
+            </>
+          ) : Number(overallPercentage) >= 60 ? (
+            <>
+              <div className="text-xl font-bold text-amber-400 flex items-center gap-1.5">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <span>Attendance Warning</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">Below 75.0% exam threshold</div>
+            </>
+          ) : (
+            <>
+              <div className="text-xl font-bold text-rose-400 flex items-center gap-1.5">
+                <XCircle className="w-5 h-5 shrink-0" />
+                <span>Disqualified</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">Below 60.0% critical threshold</div>
+            </>
+          )}
         </div>
 
         {/* Biometric Consent Card (Requirement #9) */}
@@ -653,78 +914,121 @@ export default function StudentDashboard() {
             Registered Courses
           </div>
           <div className="text-3xl font-extrabold text-indigo-400">{courses.length} Courses</div>
-          <div className="text-xs text-slate-400 mt-1">21 Credits · CSE 3rd Yr 1st Sem</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {courses.reduce((acc, c) => acc + c.credits, 0)} Credits Total · {profile.department}
+          </div>
         </div>
       </div>
 
-      {/* Course Breakdown Section (Requirement #6: Official 10 Courses) */}
+      {/* Course Breakdown Section (Requirement #5: Real Enrolled Courses & Assigned Teachers) */}
       <div className="mb-12">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-cyan-400" />
-            <span>Course-Wise Attendance (CSE 3rd Year, 1st Semester)</span>
+            <span>Course-Wise Attendance ({profile.semester || 'Current Semester'})</span>
           </h2>
-          <span className="text-xs text-slate-400 font-mono">10 Courses · 21 Credits</span>
+          <span className="text-xs text-slate-400 font-mono">
+            {courses.length} Enrolled Courses · {courses.reduce((acc, c) => acc + c.credits, 0)} Credits
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {courses.map((c) => (
-            <div
-              key={c.id}
-              className="p-6 rounded-2xl bg-navy-900/70 border border-slate-800 hover:border-slate-700 transition-colors"
-            >
-              <div className="flex items-start justify-between gap-4 mb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-navy-800 text-cyan-400 border border-slate-700 font-mono">
-                      {c.code}
-                    </span>
-                    <span className="text-[11px] text-slate-400 font-semibold">
-                      {c.credits} {c.credits === 1 ? 'Credit' : 'Credits'} {c.isSessional ? '· Sessional' : '· Theory'}
+        {courses.length === 0 ? (
+          <div className="p-8 rounded-2xl bg-navy-900/60 border border-slate-800 text-center space-y-3">
+            <BookOpen className="w-10 h-10 text-slate-600 mx-auto" />
+            <h4 className="text-base font-bold text-white">No Enrolled Courses Found</h4>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Your student account has no active course enrollments in the database. Please contact your department academic coordinator to register for semester courses.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {courses.map((c) => (
+              <div
+                key={c.id}
+                className="p-6 rounded-2xl bg-navy-900/70 border border-slate-800 hover:border-slate-700 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded bg-navy-800 text-cyan-400 border border-slate-700 font-mono">
+                        {c.code}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-semibold">
+                        {c.credits} {c.credits === 1 ? 'Credit' : 'Credits'} {c.isSessional ? '· Sessional' : '· Theory'}
+                      </span>
+                    </div>
+                    <h3 className="text-base font-bold text-white mt-1.5">{c.title}</h3>
+                    <div className="text-xs text-cyan-300/80 mt-1 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>Instructor: <strong className="text-white">{c.assignedTeacher}</strong></span>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xl font-extrabold text-white">
+                      {c.totalClasses > 0 ? `${c.percentage}%` : 'N/A'}
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                        c.totalClasses === 0
+                          ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                          : c.status === 'eligible'
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : 'bg-amber-950 text-amber-400 border border-amber-800'
+                      }`}
+                    >
+                      {c.totalClasses === 0 ? 'No Classes' : c.status === 'eligible' ? 'Eligible' : 'Warning'}
                     </span>
                   </div>
-                  <h3 className="text-base font-bold text-white mt-1.5">{c.title}</h3>
                 </div>
-                <div className="text-right">
-                  <div className="text-xl font-extrabold text-white">{c.percentage}%</div>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                      c.status === 'eligible'
-                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                        : 'bg-amber-950 text-amber-400 border border-amber-800'
+
+                {/* Progress Bar */}
+                <div className="w-full h-2 rounded-full bg-navy-950 overflow-hidden mt-4">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      c.totalClasses === 0
+                        ? 'bg-slate-700'
+                        : c.percentage >= 75
+                        ? 'bg-cyan-500'
+                        : 'bg-amber-500'
                     }`}
-                  >
-                    {c.status === 'eligible' ? 'Eligible' : 'Warning'}
-                  </span>
+                    style={{ width: `${c.totalClasses > 0 ? Math.min(c.percentage, 100) : 0}%` }}
+                  />
+                </div>
+
+                <div className="flex justify-between text-xs text-slate-400 mt-2.5">
+                  <span>Attended: {c.attendedClasses} classes</span>
+                  <span>Total Held: {c.totalClasses} classes</span>
                 </div>
               </div>
-
-              {/* Progress Bar */}
-              <div className="w-full h-2 rounded-full bg-navy-950 overflow-hidden mt-4">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    c.percentage >= 75 ? 'bg-cyan-500' : 'bg-amber-500'
-                  }`}
-                  style={{ width: `${Math.min(c.percentage, 100)}%` }}
-                />
-              </div>
-
-              <div className="flex justify-between text-xs text-slate-400 mt-2.5">
-                <span>Attended: {c.attendedClasses} classes</span>
-                <span>Total Held: {c.totalClasses} classes</span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Attendance History Table with Course Filter */}
       <div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-indigo-400" />
-            <span>Attendance Verification Logs</span>
-          </h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-indigo-400" />
+              <span>Attendance Verification Logs</span>
+            </h2>
+            {recordsSource === 'database' && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800">
+                Live Supabase Database
+              </span>
+            )}
+            {recordsSource === 'empty' && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800/80 text-slate-400 border border-slate-700">
+                Live Database (0 Records)
+              </span>
+            )}
+            {recordsSource === 'local_cache' && (
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/80 text-amber-400 border border-amber-800">
+                Local Cache (Offline)
+              </span>
+            )}
+          </div>
 
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400" />
@@ -757,33 +1061,46 @@ export default function StudentDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {filteredLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-navy-850/50 transition-colors">
-                    <td className="px-6 py-4 font-mono text-xs text-slate-400">{log.date}</td>
-                    <td className="px-6 py-4 font-bold text-white font-mono text-xs">{log.courseCode}</td>
-                    <td className="px-6 py-4 text-xs text-slate-300 max-w-xs truncate">
-                      {log.topic}
-                    </td>
-                    <td className="px-6 py-4 text-xs text-cyan-300 flex items-center gap-1.5">
-                      <Scan className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>{log.method}</span>
-                    </td>
-                    <td className="px-6 py-4 font-mono text-xs text-slate-300">{log.confidence}</td>
-                    <td className="px-6 py-4">
-                      {log.status === 'present' ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Present</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950/60 text-rose-400 border border-rose-800">
-                          <XCircle className="w-3.5 h-3.5" />
-                          <span>Absent</span>
-                        </span>
-                      )}
+                {filteredLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-12 text-slate-400 text-xs">
+                      No attendance verification records found yet. Attendance sessions finalized by course instructors will appear here in real-time.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-navy-850/50 transition-colors">
+                      <td className="px-6 py-4 font-mono text-xs text-slate-400">{log.date}</td>
+                      <td className="px-6 py-4 font-bold text-white font-mono text-xs">{log.courseCode}</td>
+                      <td className="px-6 py-4 text-xs text-slate-300 max-w-xs truncate">
+                        {log.topic}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-cyan-300 flex items-center gap-1.5">
+                        <Scan className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{log.method}</span>
+                      </td>
+                      <td className="px-6 py-4 font-mono text-xs text-slate-300">{log.confidence}</td>
+                      <td className="px-6 py-4">
+                        {log.status === 'present' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Present</span>
+                          </span>
+                        ) : log.status === 'excused' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-950/60 text-cyan-400 border border-cyan-800">
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Excused</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950/60 text-rose-400 border border-rose-800">
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>Absent</span>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -870,7 +1187,7 @@ export default function StudentDashboard() {
               </button>
             </div>
 
-            {/* Step 7B Validation Mode Notice */}
+            {/* Validation Mode Notice */}
             <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-800/60 text-xs text-cyan-200 flex items-start gap-2.5">
               <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
               <div>
@@ -910,7 +1227,6 @@ export default function StudentDashboard() {
 
               {cameraActive && (
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                  {/* Face Guide Oval */}
                   <div className="w-52 h-64 border-2 border-cyan-400/80 rounded-[50%] border-dashed animate-pulse flex items-center justify-center">
                     <span className="text-[10px] text-cyan-300 bg-navy-950/80 px-2 py-0.5 rounded">
                       Align Face Here

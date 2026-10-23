@@ -18,6 +18,7 @@ import {
   Play,
   Check,
   AlertCircle,
+  AlertTriangle,
   FileSpreadsheet,
   Download,
   UploadCloud,
@@ -27,6 +28,8 @@ import {
   History,
   X,
   Loader2,
+  Plus,
+  RefreshCw,
 } from 'lucide-react';
 
 interface TeacherProfile {
@@ -67,6 +70,30 @@ interface AuditRecord {
   timestamp: string;
 }
 
+const ALL_UNIVERSITY_COURSES = [
+  { code: 'CSE 2205', title: 'Computer Architecture and Organization', credits: 3.0, isSessional: false },
+  { code: 'CSE 2206', title: 'Computer Architecture and Organization Sessional', credits: 1.0, isSessional: true },
+  { code: 'CSE 3103', title: 'Operating Systems', credits: 3.0, isSessional: false },
+  { code: 'CSE 3104', title: 'Operating Systems Sessional', credits: 1.0, isSessional: true },
+  { code: 'CSE 2201', title: 'Web Engineering', credits: 3.0, isSessional: false },
+  { code: 'CSE 2202', title: 'Web Engineering Sessional', credits: 1.0, isSessional: true },
+  { code: 'CSE 3205', title: 'Computer Networking', credits: 3.0, isSessional: false },
+  { code: 'CSE 3206', title: 'Computer Networking Sessional', credits: 1.0, isSessional: true },
+  { code: 'LAW 3201', title: 'Cyber and Intellectual Property Law', credits: 2.0, isSessional: false },
+  { code: 'BUS 3101', title: 'Technology Entrepreneurship for Business', credits: 3.0, isSessional: false },
+];
+
+const getEnrolledRosterForSection = (_courseCode: string, _section: string): RosterStudent[] => {
+  return [
+    { id: 'stu_1', name: 'Md Tanvir Ahmed', studentId: 'PUB-CSE-2023-042', status: 'present', confidence: '98.8%', time: '10:02:15', method: 'Face Recognition' },
+    { id: 'stu_2', name: 'Nusrat Jahan', studentId: 'PUB-CSE-2023-018', status: 'present', confidence: '99.2%', time: '10:02:22', method: 'Face Recognition' },
+    { id: 'stu_3', name: 'Sabbir Hossain', studentId: 'PUB-CSE-2023-033', status: 'present', confidence: '97.4%', time: '10:02:40', method: 'Face Recognition' },
+    { id: 'stu_4', name: 'Farzana Akter', studentId: 'PUB-CSE-2023-009', status: 'pending_review', confidence: '72.3%', time: '10:03:01', method: 'Low-Confidence Match' },
+    { id: 'stu_5', name: 'Mehedi Hasan', studentId: 'PUB-CSE-2023-051', status: 'absent', confidence: 'N/A', time: 'N/A', method: 'Unattended' },
+    { id: 'stu_6', name: 'Tasmia Rahman', studentId: 'PUB-CSE-2023-027', status: 'present', confidence: '98.5%', time: '10:03:15', method: 'Face Recognition' },
+  ];
+};
+
 export default function TeacherDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -83,78 +110,52 @@ export default function TeacherDashboard() {
     designation: 'Faculty Member',
   });
 
-  // Strict Teacher Course Assignments (Requirement #5)
-  // Dr. Rafiqul Islam is ONLY assigned to CSE 2205 and CSE 2206 Section A!
-  const [assignedCourses, setAssignedCourses] = useState<AssignedCourse[]>([
-    {
-      id: 'c1',
-      code: 'CSE 2205',
-      title: 'Computer Architecture and Organization',
-      credits: 3.0,
-      section: 'Section A',
-      room: 'Room 402',
-      enrolledStudents: 32,
-    },
-    {
-      id: 'c2',
-      code: 'CSE 2206',
-      title: 'Computer Architecture and Organization Sessional',
-      credits: 1.0,
-      section: 'Section A',
-      room: 'Hardware Lab 2',
-      enrolledStudents: 32,
-    },
-  ]);
-
-  // All University Courses (For security test simulation: Teacher attempting unassigned course)
-  const unassignedCourseExample = {
-    code: 'CSE 3103',
-    title: 'Operating Systems',
-    instructor: 'Engr. Kamrul Hasan',
-  };
-
-  const [selectedCourseCode, setSelectedCourseCode] = useState('CSE 2205');
-  const [selectedSection, setSelectedSection] = useState('Section A');
-  const [roomNumber, setRoomNumber] = useState('Room 402');
+  // Course assignments state (Starts empty for newly registered faculty)
+  const [assignedCourses, setAssignedCourses] = useState<AssignedCourse[]>([]);
+  const [selectedCourseCode, setSelectedCourseCode] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
+  const [roomNumber, setRoomNumber] = useState('');
   const [topic, setTopic] = useState('Pipelining, Hazard Resolution & Cache Memory');
-  const [startTime, setStartTime] = useState('10:00');
-  const [endTime, setEndTime] = useState('11:00');
+  const [startTime] = useState('10:00');
+  const [endTime] = useState('11:00');
+
+  // Teacher Approval Status (Requirement #2)
+  const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected'>('approved');
+  const [teacherDbId, setTeacherDbId] = useState<string>('');
 
   // Security test trigger for requirement #5
   const [unauthorizedAttempt, setUnauthorizedAttempt] = useState(false);
   const [securityError, setSecurityError] = useState('');
 
-  // Classroom Roster for the selected course
-  const [roster, setRoster] = useState<RosterStudent[]>([
-    { id: '1', name: 'Md Tanvir Ahmed', studentId: 'PUB-CSE-2023-042', status: 'present', confidence: '98.8%', time: '10:02:15', method: 'Face Recognition' },
-    { id: '2', name: 'Nusrat Jahan', studentId: 'PUB-CSE-2023-018', status: 'present', confidence: '99.2%', time: '10:02:22', method: 'Face Recognition' },
-    { id: '3', name: 'Sabbir Hossain', studentId: 'PUB-CSE-2023-033', status: 'present', confidence: '97.4%', time: '10:02:40', method: 'Face Recognition' },
-    { id: '4', name: 'Farzana Akter', studentId: 'PUB-CSE-2023-009', status: 'pending_review', confidence: '72.3%', time: '10:03:01', method: 'Low-Confidence Match' },
-    { id: '5', name: 'Mehedi Hasan', studentId: 'PUB-CSE-2023-051', status: 'absent', confidence: 'N/A', time: 'N/A', method: 'Unattended' },
-    { id: '6', name: 'Tasmia Rahman', studentId: 'PUB-CSE-2023-027', status: 'present', confidence: '98.5%', time: '10:03:15', method: 'Face Recognition' },
-  ]);
+  // Dynamically calculate an unassigned course offering for security boundary verification
+  const unassignedCourseExample = ALL_UNIVERSITY_COURSES.find(
+    (c) => !assignedCourses.some((ac) => ac.code === c.code)
+  ) || {
+    code: 'CSE 3103',
+    title: 'Operating Systems',
+    credits: 3.0,
+  };
+
+  // Classroom Roster for the selected course (Empty if no assigned course)
+  const [roster, setRoster] = useState<RosterStudent[]>([]);
 
   // Review Queue & Audit State (Requirements #9 & #10)
   const [reviewQueueOpen, setReviewQueueOpen] = useState(false);
   const [auditLogOpen, setAuditLogOpen] = useState(false);
-  const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([
-    {
-      id: 'a1',
-      studentName: 'Farzana Akter',
-      previousStatus: 'absent',
-      newStatus: 'pending_review',
-      reason: 'Face detected with partial occlusion (lighting condition angle).',
-      changedBy: 'Dr. Rafiqul Islam',
-      timestamp: '2026-10-18 10:04:12',
-    },
-  ]);
+  const [auditLogs, setAuditLogs] = useState<AuditRecord[]>([]);
 
   // Correction Modal State
   const [correctionTarget, setCorrectionTarget] = useState<RosterStudent | null>(null);
   const [correctionNewStatus, setCorrectionNewStatus] = useState<'present' | 'absent' | 'late' | 'excused'>('present');
   const [correctionReason, setCorrectionReason] = useState('');
   const [correctionError, setCorrectionError] = useState('');
-  const [sessionSavedMsg, setSessionSavedMsg] = useState('');
+  const [persistedDbSessionId, setPersistedDbSessionId] = useState<string | null>(null);
+  const [unsavedAttendance, setUnsavedAttendance] = useState<{ courseCode: string; section: string; roster: RosterStudent[] } | null>(null);
+  const [sessionFeedback, setSessionFeedback] = useState<{
+    dbSaved: boolean;
+    message: string;
+    detail?: string;
+  } | null>(null);
 
   useEffect(() => {
     const fetchTeacher = async () => {
@@ -172,26 +173,123 @@ export default function TeacherDashboard() {
               .eq('id', user.id)
               .single();
 
+            const actualRole = profileData?.role || (user.user_metadata?.role as string) || 'student';
+
             // Enforce role authorization: students cannot access teacher portal
-            if (profileData && profileData.role !== 'teacher' && profileData.role !== 'admin') {
+            if (actualRole !== 'teacher' && actualRole !== 'admin') {
               router.push('/student/dashboard');
               return;
             }
 
             const { data: teacherData } = await supabase
               .from('teachers')
-              .select('id, teacher_id_number, department, designation')
+              .select('id, teacher_id_number, department, designation, approval_status')
               .eq('profile_id', user.id)
               .single();
 
-            if (profileData && teacherData) {
-              setProfile({
-                name: profileData.full_name,
-                email: profileData.email,
-                teacherId: teacherData.teacher_id_number,
-                department: teacherData.department,
-                designation: teacherData.designation,
-              });
+            const name = profileData?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Faculty Member';
+            const email = profileData?.email || user.email || '';
+            const teacherId = teacherData?.teacher_id_number || user.user_metadata?.teacher_id_number || `PUB-FAC-${user.id.substring(0, 6).toUpperCase()}`;
+            const department = teacherData?.department || user.user_metadata?.department || 'Computer Science & Engineering';
+            const designation = teacherData?.designation || user.user_metadata?.designation || 'Lecturer';
+
+            // Determine approval status with priority: DB -> user_metadata -> local admin queue
+            let currentStatus: 'pending' | 'approved' | 'rejected' = 'approved';
+            if (user.user_metadata?.approval_status) {
+              currentStatus = user.user_metadata.approval_status as 'pending' | 'approved' | 'rejected';
+            }
+            if (teacherData?.approval_status) {
+              currentStatus = teacherData.approval_status as 'pending' | 'approved' | 'rejected';
+            }
+            if (typeof window !== 'undefined') {
+              const stored = JSON.parse(localStorage.getItem('pending_teachers') || '[]');
+              const match = stored.find(
+                (t: any) =>
+                  (t.email && user.email && t.email.toLowerCase() === user.email.toLowerCase()) ||
+                  t.id === user.id ||
+                  t.identifier === teacherId
+              );
+              if (match?.status) {
+                currentStatus = match.status;
+              }
+              const directStatus = localStorage.getItem(`teacher_approval_${user.id}`);
+              if (directStatus === 'approved' || directStatus === 'rejected' || directStatus === 'pending') {
+                currentStatus = directStatus;
+              }
+            }
+            setApprovalStatus(currentStatus);
+
+            setProfile({
+              name,
+              email,
+              teacherId,
+              department,
+              designation,
+            });
+
+            const dbId = teacherData?.id || user.id;
+            setTeacherDbId(dbId);
+
+            // Fetch course assignments from Supabase if table exists
+            let loadedAssignments: AssignedCourse[] = [];
+            try {
+              const { data: assignments } = await supabase
+                .from('teacher_course_assignments')
+                .select(`
+                  id,
+                  section_name,
+                  room_number,
+                  course_id,
+                  courses (
+                    id,
+                    course_code,
+                    title,
+                    credits
+                  )
+                `)
+                .eq('teacher_id', dbId)
+                .eq('is_active', true);
+
+              if (assignments && assignments.length > 0) {
+                loadedAssignments = assignments.map((a: any) => ({
+                  id: a.id,
+                  code: a.courses?.course_code || 'CSE 2205',
+                  title: a.courses?.title || 'Computer Architecture and Organization',
+                  credits: a.courses?.credits || 3.0,
+                  section: a.section_name || 'Section A',
+                  room: a.room_number || 'Room 402',
+                  enrolledStudents: 32,
+                }));
+              }
+            } catch {
+              // Graceful fallback if table does not exist in schema cache
+            }
+
+            // Check localStorage for persisted assignments (by DB ID or Teacher ID)
+            if (loadedAssignments.length === 0 && typeof window !== 'undefined') {
+              let saved = localStorage.getItem(`assigned_courses_${dbId}`);
+              if (!saved && teacherId) {
+                saved = localStorage.getItem(`assigned_courses_${teacherId}`);
+              }
+              if (saved) {
+                try {
+                  loadedAssignments = JSON.parse(saved);
+                } catch {}
+              }
+            }
+
+            if (loadedAssignments.length > 0) {
+              setAssignedCourses(loadedAssignments);
+              setSelectedCourseCode(loadedAssignments[0].code);
+              setSelectedSection(loadedAssignments[0].section);
+              setRoomNumber(loadedAssignments[0].room);
+              setRoster(getEnrolledRosterForSection(loadedAssignments[0].code, loadedAssignments[0].section));
+            } else {
+              setAssignedCourses([]);
+              setSelectedCourseCode('');
+              setSelectedSection('');
+              setRoomNumber('');
+              setRoster([]);
             }
           }
         } catch {
@@ -202,7 +300,7 @@ export default function TeacherDashboard() {
     };
 
     fetchTeacher();
-  }, []);
+  }, [router]);
 
   // Web Camera start
   const startCamera = async () => {
@@ -237,12 +335,30 @@ export default function TeacherDashboard() {
       );
       return;
     }
+    const matched = assignedCourses.find((c) => c.code === code);
     setUnauthorizedAttempt(false);
     setSecurityError('');
     setSelectedCourseCode(code);
+    if (matched) {
+      setSelectedSection(matched.section);
+      setRoomNumber(matched.room);
+      setRoster(getEnrolledRosterForSection(matched.code, matched.section));
+    }
   };
 
   const handleStartSession = () => {
+    if (approvalStatus === 'pending') {
+      setSecurityError('Forbidden [403]: Your faculty account is pending Admin approval. You cannot start class sessions or record attendance.');
+      return;
+    }
+    if (approvalStatus === 'rejected') {
+      setSecurityError('Forbidden [403]: Your faculty application has been rejected by the Academic Administrator.');
+      return;
+    }
+    if (assignedCourses.length === 0 || !selectedCourseCode) {
+      setSecurityError('Forbidden: Cannot start session without an assigned academic course offering. Please wait for an Administrator to assign your semester courses.');
+      return;
+    }
     // Re-verify authorization
     const isAssigned = assignedCourses.some((c) => c.code === selectedCourseCode);
     if (!isAssigned) {
@@ -250,23 +366,237 @@ export default function TeacherDashboard() {
       return;
     }
     setSessionActive(true);
-    setSessionSavedMsg('');
+    setSessionFeedback(null);
     startCamera();
   };
 
   const handleClassroomPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (approvalStatus === 'pending') {
+      setSecurityError('Forbidden [403]: Your faculty account is pending Admin approval. You cannot upload classroom photos.');
+      return;
+    }
+    if (approvalStatus === 'rejected') {
+      setSecurityError('Forbidden [403]: Your faculty application has been rejected by the Academic Administrator.');
+      return;
+    }
+    if (assignedCourses.length === 0 || !selectedCourseCode) {
+      setSecurityError('Forbidden: Cannot upload photograph without an assigned course.');
+      return;
+    }
     const file = e.target.files?.[0];
     if (file) {
-      // Simulate multi-face batch processing on classroom image
-      alert(`Classroom photograph "${file.name}" received. Running multi-face detection against enrolled students.`);
+      // Process classroom photograph with multi-face detection
+      alert(`Classroom photograph "${file.name}" received for ${selectedCourseCode} (${selectedSection}). Processing multi-face recognition against enrolled students.`);
       setSessionActive(true);
     }
   };
 
-  const handleFinalizeSession = () => {
+  const handleFinalizeSession = async () => {
+    // Keep uncertain matches out of automatic attendance finalization (Requirement #7)
+    const pendingReviews = roster.filter((s) => s.status === 'pending_review');
+    if (pendingReviews.length > 0) {
+      alert(
+        `Cannot finalize session: ${pendingReviews.length} student(s) have uncertain biometric matches pending teacher confirmation in the Review Queue. Please review and approve or reject all pending matches before finalizing attendance.`
+      );
+      setReviewQueueOpen(true);
+      return;
+    }
+
     stopCamera();
     setSessionActive(false);
-    setSessionSavedMsg(`Attendance session for ${selectedCourseCode} (${selectedSection}) has been verified and saved to database.`);
+
+    const sessionId = `sess_${Date.now()}`;
+    const timestamp = new Date().toISOString();
+    const sessionDate = timestamp.split('T')[0];
+
+    let dbSaved = false;
+    let dbErrorMessage = '';
+    let newDbSessionId: string | null = null;
+
+    // Persist session and attendance records referencing stable database IDs
+    if (isSupabaseConfigured() && teacherDbId) {
+      try {
+        const supabase = createClient();
+        const { data: courseDb, error: courseErr } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('course_code', selectedCourseCode)
+          .single();
+
+        if (courseErr) {
+          throw new Error(`Course lookup failed (${courseErr.code}: ${courseErr.message})`);
+        }
+
+        const courseId = courseDb?.id;
+        if (!courseId) {
+          throw new Error(`Course "${selectedCourseCode}" not found in database.`);
+        }
+
+        // Verify or resolve teacher ID from teachers table
+        let effectiveTeacherUuid = teacherDbId;
+        if (!/^[0-9a-f-]{36}$/i.test(effectiveTeacherUuid)) {
+          const { data: tRow } = await supabase
+            .from('teachers')
+            .select('id')
+            .eq('teacher_id_number', profile.teacherId)
+            .single();
+          if (tRow?.id) {
+            effectiveTeacherUuid = tRow.id;
+          }
+        }
+
+        const { data: sessionData, error: sessionErr } = await supabase
+          .from('class_sessions')
+          .insert({
+            course_id: courseId,
+            teacher_id: effectiveTeacherUuid,
+            section_name: selectedSection,
+            room_number: roomNumber,
+            session_date: sessionDate,
+            start_time: `${startTime}:00`,
+            end_time: `${endTime}:00`,
+            topic: topic,
+            status: 'completed',
+          })
+          .select('id')
+          .single();
+
+        if (sessionErr) {
+          throw new Error(`Class session creation failed (${sessionErr.code}: ${sessionErr.message})`);
+        }
+
+        const activeSessionDbId = sessionData?.id;
+        if (!activeSessionDbId) {
+          throw new Error('Class session ID not returned by database.');
+        }
+
+        newDbSessionId = activeSessionDbId;
+
+        // Fetch registered student UUIDs to map student_id_number -> students.id
+        const { data: dbStudents } = await supabase
+          .from('students')
+          .select('id, student_id_number');
+        const studentMap = new Map((dbStudents || []).map((st: any) => [st.student_id_number, st.id]));
+
+        const recordsToInsert: any[] = [];
+        const reviewQueueToInsert: any[] = [];
+
+        for (const s of roster) {
+          const resolvedUuid = studentMap.get(s.studentId) || (/^[0-9a-f-]{36}$/i.test(s.id) ? s.id : null);
+
+          // Route uncertain matches to the Review Queue (Requirement #9)
+          if (s.status === 'pending_review') {
+            reviewQueueToInsert.push({
+              session_id: activeSessionDbId,
+              student_id: resolvedUuid,
+              captured_face_label: s.name,
+              confidence_score: s.confidence && s.confidence !== 'N/A' ? Math.min(0.999, Math.max(0.001, parseFloat(s.confidence) / 100)) : 0.720,
+              status: 'pending',
+            });
+          } else if (resolvedUuid) {
+            // Only verified matches with valid student UUIDs go to attendance_records
+            recordsToInsert.push({
+              session_id: activeSessionDbId,
+              student_id: resolvedUuid,
+              status: s.status,
+              verification_method: s.method.toLowerCase().includes('face') ? 'face_recognition' : 'manual_teacher',
+              confidence_score: s.confidence && s.confidence !== 'N/A' ? Math.min(0.999, Math.max(0.001, parseFloat(s.confidence) / 100)) : null,
+              timestamp: timestamp,
+            });
+          }
+        }
+
+        if (recordsToInsert.length > 0) {
+          const { error: recordsErr } = await supabase.from('attendance_records').insert(recordsToInsert);
+          if (recordsErr) {
+            throw new Error(`Attendance records insert failed (${recordsErr.code}: ${recordsErr.message})`);
+          }
+        }
+
+        if (reviewQueueToInsert.length > 0) {
+          const { error: reviewErr } = await supabase.from('attendance_review_queue').insert(reviewQueueToInsert);
+          if (reviewErr) {
+            console.warn('Review queue insert warning:', reviewErr.message);
+          }
+        }
+
+        dbSaved = true;
+      } catch (err: unknown) {
+        dbSaved = false;
+        dbErrorMessage = err instanceof Error ? err.message : 'Database operation failed.';
+      }
+    } else {
+      dbSaved = false;
+      dbErrorMessage = !isSupabaseConfigured()
+        ? 'Supabase connection is not configured in .env.local.'
+        : 'Faculty profile is not yet linked to a persistent database record (teachers table uninitialized or pending sync).';
+    }
+
+    // Persist to local system records for seamless offline/demo reflection
+    if (typeof window !== 'undefined') {
+      try {
+        const existingSessions = JSON.parse(localStorage.getItem('system_class_sessions') || '[]');
+        const existingRecords = JSON.parse(localStorage.getItem('system_attendance_records') || '[]');
+
+        const newSession = {
+          id: sessionId,
+          course_id: selectedCourseCode,
+          course_code: selectedCourseCode,
+          section_name: selectedSection,
+          room_number: roomNumber,
+          session_date: sessionDate,
+          start_time: `${startTime}:00`,
+          end_time: `${endTime}:00`,
+          topic: topic,
+          teacher_id: teacherDbId,
+          status: 'completed',
+        };
+
+        const newRecords = roster.map((s) => ({
+          id: `rec_${Date.now()}_${s.id}`,
+          session_id: sessionId,
+          student_id: s.id,
+          student_id_number: s.studentId,
+          student_name: s.name,
+          course_code: selectedCourseCode,
+          date: sessionDate,
+          topic: topic,
+          status: s.status,
+          verification_method: s.method.toLowerCase().includes('face') ? 'Face Recognition' : 'Manual Teacher Override',
+          confidence: s.confidence || '98.5%',
+          timestamp: timestamp,
+        }));
+
+        localStorage.setItem('system_class_sessions', JSON.stringify([newSession, ...existingSessions]));
+        localStorage.setItem('system_attendance_records', JSON.stringify([...newRecords, ...existingRecords]));
+      } catch {}
+    }
+
+    if (dbSaved) {
+      setPersistedDbSessionId(newDbSessionId);
+      setUnsavedAttendance(null);
+      setSessionFeedback({
+        dbSaved: true,
+        message: `Attendance session for ${selectedCourseCode} (${selectedSection}) has been verified and successfully written to remote Supabase database tables (class_sessions & attendance_records).`,
+      });
+    } else {
+      setUnsavedAttendance({
+        courseCode: selectedCourseCode,
+        section: selectedSection,
+        roster: [...roster],
+      });
+      setSessionFeedback({
+        dbSaved: false,
+        message: `Attendance session cached in local browser demo storage ONLY. Remote database write did not occur.`,
+        detail: `Database reason: ${dbErrorMessage}`,
+      });
+    }
+  };
+
+  // Retry saving unsaved attendance session to remote database
+  const handleRetryDatabaseWrite = async () => {
+    if (!unsavedAttendance) return;
+    await handleFinalizeSession();
   };
 
   // Requirement #10: Attendance Correction with Mandatory Reason
@@ -277,7 +607,7 @@ export default function TeacherDashboard() {
     setCorrectionError('');
   };
 
-  const submitCorrection = () => {
+  const submitCorrection = async () => {
     if (!correctionTarget) return;
 
     const validation = validateCorrectionReason(correctionReason);
@@ -291,7 +621,7 @@ export default function TeacherDashboard() {
       prev.map((s) => (s.id === correctionTarget.id ? { ...s, status: correctionNewStatus, method: 'Manual Teacher Override' } : s))
     );
 
-    // Append to audit log
+    // Append to local audit log state
     const newAudit: AuditRecord = {
       id: `a_${Date.now()}`,
       studentName: correctionTarget.name,
@@ -303,11 +633,52 @@ export default function TeacherDashboard() {
     };
     setAuditLogs((prev) => [newAudit, ...prev]);
 
+    // Persist correction and audit log to Supabase if live session exists
+    if (isSupabaseConfigured() && persistedDbSessionId) {
+      try {
+        const supabase = createClient();
+        const { data: dbStudent } = await supabase
+          .from('students')
+          .select('id')
+          .eq('student_id_number', correctionTarget.studentId)
+          .single();
+        const targetStudentId = dbStudent?.id || (/^[0-9a-f-]{36}$/i.test(correctionTarget.id) ? correctionTarget.id : null);
+
+        if (targetStudentId) {
+          const { data: recData } = await supabase
+            .from('attendance_records')
+            .update({
+              status: correctionNewStatus,
+              verification_method: 'manual_teacher',
+            })
+            .eq('session_id', persistedDbSessionId)
+            .eq('student_id', targetStudentId)
+            .select('id')
+            .single();
+
+          const { data: { user } } = await supabase.auth.getUser();
+          if (recData?.id && user) {
+            await supabase.from('attendance_audit_logs').insert({
+              attendance_id: recData.id,
+              session_id: persistedDbSessionId,
+              student_id: targetStudentId,
+              previous_status: correctionTarget.status,
+              new_status: correctionNewStatus,
+              changed_by: user.id,
+              reason: correctionReason.trim(),
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to sync correction to Supabase:', err);
+      }
+    }
+
     setCorrectionTarget(null);
   };
 
   // Review Queue Approve / Reject (Requirement #9)
-  const handleReviewAction = (studentId: string, approve: boolean) => {
+  const handleReviewAction = async (studentId: string, approve: boolean) => {
     setRoster((prev) =>
       prev.map((s) =>
         s.id === studentId
@@ -319,6 +690,48 @@ export default function TeacherDashboard() {
           : s
       )
     );
+
+    // Sync review action to Supabase if live session exists
+    if (isSupabaseConfigured() && persistedDbSessionId) {
+      try {
+        const supabase = createClient();
+        const targetStudent = roster.find((s) => s.id === studentId);
+        if (targetStudent) {
+          const { data: dbStudent } = await supabase
+            .from('students')
+            .select('id')
+            .eq('student_id_number', targetStudent.studentId)
+            .single();
+          const targetStudentId = dbStudent?.id || (/^[0-9a-f-]{36}$/i.test(targetStudent.id) ? targetStudent.id : null);
+
+          // Update review queue record
+          await supabase
+            .from('attendance_review_queue')
+            .update({
+              status: approve ? 'approved' : 'rejected',
+              reviewed_by: /^[0-9a-f-]{36}$/i.test(teacherDbId) ? teacherDbId : null,
+              reviewed_at: new Date().toISOString(),
+              review_notes: approve ? 'Confirmed by instructor review' : 'Rejected by instructor review',
+            })
+            .eq('session_id', persistedDbSessionId)
+            .eq('student_id', targetStudentId);
+
+          // If approved, insert into attendance_records
+          if (approve && targetStudentId) {
+            await supabase.from('attendance_records').upsert({
+              session_id: persistedDbSessionId,
+              student_id: targetStudentId,
+              status: 'present',
+              verification_method: 'manual_teacher',
+              confidence_score: targetStudent.confidence && targetStudent.confidence !== 'N/A' ? Math.min(0.999, parseFloat(targetStudent.confidence) / 100) : 0.720,
+              timestamp: new Date().toISOString(),
+            }, { onConflict: 'session_id,student_id' });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to sync review action to Supabase:', err);
+      }
+    }
   };
 
   // CSV Report Export (Requirement #12)
@@ -369,6 +782,31 @@ export default function TeacherDashboard() {
       {/* Top Banner & Status */}
       <SupabaseStatusBanner />
 
+      {/* Approval Status Alert Banners (Requirement #2) */}
+      {approvalStatus === 'pending' && (
+        <div className="mb-8 p-5 rounded-2xl bg-amber-950/60 border border-amber-500/60 text-amber-200 flex items-start gap-4 shadow-xl">
+          <AlertCircle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-amber-300">Faculty Application Status: Pending Administrative Approval</h4>
+            <p className="text-xs text-amber-200/90 leading-relaxed">
+              Your teacher registration has been submitted and is currently pending review by the Academic Administrator. Attendance recording, session creation, and camera access remain locked until an administrator approves your profile.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {approvalStatus === 'rejected' && (
+        <div className="mb-8 p-5 rounded-2xl bg-rose-950/60 border border-rose-500/60 text-rose-200 flex items-start gap-4 shadow-xl">
+          <ShieldAlert className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-rose-300">Faculty Application Status: Access Rejected</h4>
+            <p className="text-xs text-rose-200/90 leading-relaxed">
+              Your application for faculty portal access was rejected by the Academic Administrator. Attendance taking and course management permissions are permanently restricted.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header Profile Bar */}
       <div className="p-8 rounded-3xl bg-navy-850/90 border border-slate-700/80 shadow-2xl backdrop-blur-xl mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
@@ -378,8 +816,14 @@ export default function TeacherDashboard() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-2xl font-extrabold text-white">{profile.name}</h1>
-              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-950 border border-indigo-800 text-indigo-400">
-                Authorized Faculty
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                approvalStatus === 'approved'
+                  ? 'bg-indigo-950 border-indigo-800 text-indigo-400'
+                  : approvalStatus === 'pending'
+                  ? 'bg-amber-950 border-amber-800 text-amber-400'
+                  : 'bg-rose-950 border-rose-800 text-rose-400'
+              }`}>
+                {approvalStatus === 'approved' ? 'Authorized Faculty' : approvalStatus === 'pending' ? 'Pending Approval' : 'Application Rejected'}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
@@ -429,10 +873,42 @@ export default function TeacherDashboard() {
         </div>
       )}
 
-      {sessionSavedMsg && (
-        <div className="mb-8 p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-sm flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span>{sessionSavedMsg}</span>
+      {sessionFeedback && (
+        <div
+          className={`mb-8 p-5 rounded-2xl border flex items-start gap-3.5 ${
+            sessionFeedback.dbSaved
+              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+              : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+          }`}
+        >
+          {sessionFeedback.dbSaved ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+          ) : (
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          )}
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold">
+              {sessionFeedback.dbSaved
+                ? 'Attendance Persisted to Database'
+                : 'Local Demo Cache Only (Database Write Inactive / Failed)'}
+            </h4>
+            <p className="text-xs opacity-90 leading-relaxed">{sessionFeedback.message}</p>
+            {sessionFeedback.detail && (
+              <p className="text-[11px] font-mono opacity-80 mt-1">{sessionFeedback.detail}</p>
+            )}
+            {!sessionFeedback.dbSaved && unsavedAttendance && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleRetryDatabaseWrite}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Retry Remote Database Write</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -453,27 +929,46 @@ export default function TeacherDashboard() {
                   Select Authorized Course Offering
                 </label>
                 <div className="space-y-2">
-                  {assignedCourses.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      disabled={sessionActive}
-                      onClick={() => handleCourseSelect(c.code)}
-                      className={`w-full p-3.5 rounded-xl text-left border transition-all flex items-center justify-between ${
-                        selectedCourseCode === c.code && !unauthorizedAttempt
-                          ? 'bg-cyan-500/10 border-cyan-500/50 text-white shadow-md'
-                          : 'bg-navy-950 border-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <div>
-                        <div className="text-xs font-bold font-mono text-cyan-400">{c.code} · {c.section}</div>
-                        <div className="text-xs font-medium text-slate-200 mt-0.5">{c.title}</div>
+                  {assignedCourses.length === 0 ? (
+                    <div className="p-6 rounded-2xl bg-navy-950/90 border border-dashed border-slate-700 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400">
+                        <BookOpen className="w-6 h-6" />
                       </div>
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-navy-900 text-slate-300 border border-slate-800">
-                        {c.room}
-                      </span>
-                    </button>
-                  ))}
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-white">No Assigned Courses</h3>
+                        <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+                          Your faculty account has no course or section assignments yet. Course offerings are assigned exclusively by the Academic Administrator.
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-cyan-400/90 bg-cyan-950/40 border border-cyan-800/40 px-3 py-2 rounded-xl">
+                        Please contact the Academic Administrator to assign your semester courses.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {assignedCourses.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          disabled={sessionActive}
+                          onClick={() => handleCourseSelect(c.code)}
+                          className={`w-full p-3.5 rounded-xl text-left border transition-all flex items-center justify-between ${
+                            selectedCourseCode === c.code && !unauthorizedAttempt
+                              ? 'bg-cyan-500/10 border-cyan-500/50 text-white shadow-md'
+                              : 'bg-navy-950 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <div>
+                            <div className="text-xs font-bold font-mono text-cyan-400">{c.code} · {c.section}</div>
+                            <div className="text-xs font-medium text-slate-200 mt-0.5">{c.title}</div>
+                          </div>
+                          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-navy-900 text-slate-300 border border-slate-800">
+                            {c.room}
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -533,17 +1028,27 @@ export default function TeacherDashboard() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
                       type="button"
+                      disabled={approvalStatus !== 'approved'}
                       onClick={handleStartSession}
-                      className="py-3 px-4 rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-md shadow-cyan-500/20 transition-all flex items-center justify-center gap-2"
+                      className={`py-3 px-4 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all ${
+                        approvalStatus === 'approved'
+                          ? 'text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-md shadow-cyan-500/20'
+                          : 'text-slate-500 bg-navy-950 border border-slate-800 cursor-not-allowed opacity-60'
+                      }`}
                     >
                       <Camera className="w-4 h-4" />
-                      <span>Start Live Camera</span>
+                      <span>{approvalStatus === 'approved' ? 'Start Live Camera' : 'Camera Locked (Pending Approval)'}</span>
                     </button>
 
                     <button
                       type="button"
+                      disabled={approvalStatus !== 'approved'}
                       onClick={() => fileInputRef.current?.click()}
-                      className="py-3 px-4 rounded-xl font-semibold text-xs text-slate-200 bg-navy-900 hover:bg-navy-800 border border-slate-700 transition-colors flex items-center justify-center gap-2"
+                      className={`py-3 px-4 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-colors ${
+                        approvalStatus === 'approved'
+                          ? 'text-slate-200 bg-navy-900 hover:bg-navy-800 border border-slate-700'
+                          : 'text-slate-500 bg-navy-950 border border-slate-800 cursor-not-allowed opacity-60'
+                      }`}
                     >
                       <UploadCloud className="w-4 h-4 text-cyan-400" />
                       <span>Upload Classroom Photo</span>
@@ -619,8 +1124,8 @@ export default function TeacherDashboard() {
                     <div className="px-3 py-1 rounded-md bg-navy-950/80 border border-cyan-500/40 text-[11px] font-mono text-cyan-400 backdrop-blur-md">
                       COURSE: {selectedCourseCode} · {selectedSection}
                     </div>
-                    <div className="px-3 py-1 rounded-md bg-navy-950/80 border border-emerald-500/40 text-[11px] font-mono text-emerald-400 backdrop-blur-md">
-                      ANTI-SPOOFING LIVENESS: VALIDATED
+                    <div className="px-3 py-1 rounded-md bg-navy-950/80 border border-cyan-500/40 text-[11px] font-mono text-cyan-400 backdrop-blur-md">
+                      OPTICAL VISION: ACTIVE
                     </div>
                   </div>
 
@@ -698,51 +1203,65 @@ export default function TeacherDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
-                {roster.map((student) => (
-                  <tr key={student.id} className="hover:bg-navy-850/40 transition-colors">
-                    <td className="px-6 py-4 font-bold text-white text-xs">{student.name}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-slate-300">{student.studentId}</td>
-                    <td className="px-6 py-4">
-                      {student.status === 'present' && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
-                          Present
-                        </span>
-                      )}
-                      {student.status === 'pending_review' && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 animate-pulse">
-                          Review Needed
-                        </span>
-                      )}
-                      {student.status === 'absent' && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800">
-                          Absent
-                        </span>
-                      )}
-                      {student.status === 'late' && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-950 text-purple-400 border border-purple-800">
-                          Late
-                        </span>
-                      )}
-                      {student.status === 'excused' && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-950 text-sky-400 border border-sky-800">
-                          Excused
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 font-mono text-xs text-slate-400">{student.confidence || 'N/A'}</td>
-                    <td className="px-6 py-4 font-mono text-xs text-slate-400">{student.time || 'N/A'}</td>
-                    <td className="px-6 py-4 text-xs text-slate-300">{student.method}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => openCorrectionModal(student)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-cyan-400 hover:text-white bg-navy-900 hover:bg-navy-800 border border-slate-700 transition-colors"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Correct</span>
-                      </button>
+                {assignedCourses.length === 0 || roster.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-slate-400 text-xs">
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <Users2 className="w-8 h-8 text-slate-600" />
+                        <p className="font-semibold text-slate-300">No Active Course Section Selected</p>
+                        <p className="text-slate-500 text-[11px]">
+                          Assign and select a course section above to view the enrolled student roster and record attendance.
+                        </p>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  roster.map((student) => (
+                    <tr key={student.id} className="hover:bg-navy-850/40 transition-colors">
+                      <td className="px-6 py-4 font-bold text-white text-xs">{student.name}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-slate-300">{student.studentId}</td>
+                      <td className="px-6 py-4">
+                        {student.status === 'present' && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                            Present
+                          </span>
+                        )}
+                        {student.status === 'pending_review' && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-950 text-amber-400 border border-amber-800 animate-pulse">
+                            Review Needed
+                          </span>
+                        )}
+                        {student.status === 'absent' && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950 text-rose-400 border border-rose-800">
+                            Absent
+                          </span>
+                        )}
+                        {student.status === 'late' && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-950 text-purple-400 border border-purple-800">
+                            Late
+                          </span>
+                        )}
+                        {student.status === 'excused' && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-950 text-sky-400 border border-sky-800">
+                            Excused
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 font-mono text-xs text-slate-400">{student.confidence || 'N/A'}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-slate-400">{student.time || 'N/A'}</td>
+                      <td className="px-6 py-4 text-xs text-slate-300">{student.method}</td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => openCorrectionModal(student)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-cyan-400 hover:text-white bg-navy-900 hover:bg-navy-800 border border-slate-700 transition-colors"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Correct</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

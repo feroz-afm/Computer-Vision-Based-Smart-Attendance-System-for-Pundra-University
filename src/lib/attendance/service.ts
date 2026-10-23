@@ -1,4 +1,4 @@
-import { AttendanceRecord, AttendanceAuditLog } from '@/types/database.types';
+import type { AttendanceRecord, AttendanceAuditLog } from '../../types/database.types';
 
 /**
  * Attendance Percentage & Academic Standing Calculation

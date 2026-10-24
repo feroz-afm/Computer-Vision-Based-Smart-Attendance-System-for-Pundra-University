@@ -229,7 +229,9 @@ async function runStudentDashboardTests() {
     assert.ok(migrationSql.includes("create or replace function public.promote_to_admin(target_email text)"),
       'Missing promote_to_admin function'
     );
-    assert.ok(migrationSql.includes("select id into target_user_id from auth.users where email = target_email"),
+    assert.ok(
+      migrationSql.includes("select id into target_user_id from auth.users where email = target_email") ||
+      migrationSql.includes("select id into target_user_id from auth.users where lower(email) = clean_email"),
       'Missing auth.users fallback lookup in promote_to_admin'
     );
   });

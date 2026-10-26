@@ -174,50 +174,35 @@ function RegisterForm() {
         {/* Card Container */}
         <div className="p-8 sm:p-10 rounded-3xl bg-navy-850/90 border border-slate-700/80 shadow-2xl backdrop-blur-xl">
           
-          {/* Header */}
-          <div className="text-center space-y-2 mb-8">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Create Your Account
-            </h1>
-            <p className="text-sm text-slate-400">
-              PUB AttendEye · Pundra University Smart Attendance
-            </p>
-          </div>
-
-          {/* Role Tabs */}
-          <div className="grid grid-cols-2 p-1.5 rounded-2xl bg-navy-900 border border-slate-800 mb-8">
-            <button
-              type="button"
-              onClick={() => {
-                setRole('student');
-                setErrorMsg('');
-              }}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-                role === 'student'
-                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <GraduationCap className="w-4 h-4" />
-              <span>Student</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setRole('teacher');
-                setErrorMsg('');
-              }}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-                role === 'teacher'
-                  ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Users2 className="w-4 h-4" />
-              <span>Teacher / Faculty</span>
-            </button>
-          </div>
+          {/* Header & Role Isolation */}
+          {role === 'teacher' ? (
+            <div className="text-center space-y-2 mb-8">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-2">
+                <Users2 className="w-6 h-6" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Create Teacher Account
+              </h1>
+              <p className="text-sm text-slate-400">
+                Pundra University Faculty & Instructor Registration
+              </p>
+              <div className="pt-2 flex items-center justify-center">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/60 border border-indigo-700/60 text-indigo-300">
+                  <Users2 className="w-3.5 h-3.5" />
+                  <span>Teacher / Faculty Member</span>
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center space-y-2 mb-8">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Create Student Account
+              </h1>
+              <p className="text-sm text-slate-400">
+                PUB AttendEye · Pundra University Smart Attendance
+              </p>
+            </div>
+          )}
 
           {/* Feedback Alerts */}
           {errorMsg && (
@@ -485,23 +470,50 @@ function RegisterForm() {
                 </>
               )}
             </button>
+
+            {role === 'teacher' && (
+              <p className="mt-3 text-center text-xs text-amber-300/80 bg-amber-950/30 border border-amber-500/20 rounded-xl px-3 py-2">
+                Faculty account approval is required by an Academic Administrator before attendance sessions can be created.
+              </p>
+            )}
           </form>
 
           {/* Footer Navigation */}
           <div className="mt-8 pt-6 border-t border-slate-800 text-center space-y-2">
-            <p className="text-xs text-slate-400">
-              Already have an account?{' '}
-              <Link
-                href={`/login?role=${role}`}
-                className="text-cyan-400 hover:text-cyan-300 font-semibold"
-              >
-                Log In Here
-              </Link>
-            </p>
-            <div className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5 pt-1">
-              <Shield className="w-3.5 h-3.5 text-slate-400" />
-              <span>Admin accounts cannot be self-registered. Managed by Pundra University IT.</span>
-            </div>
+            {role === 'teacher' ? (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">
+                  Already registered as faculty?{' '}
+                  <Link
+                    href="/login?role=teacher"
+                    className="text-indigo-400 hover:text-indigo-300 font-semibold"
+                  >
+                    Sign in to Teacher Portal
+                  </Link>
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  <Link href="/#portals" className="hover:text-slate-300 transition-colors">
+                    ← Return to university portals
+                  </Link>
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-slate-400">
+                  Already have an account?{' '}
+                  <Link
+                    href="/login?role=student"
+                    className="text-cyan-400 hover:text-cyan-300 font-semibold"
+                  >
+                    Log In Here
+                  </Link>
+                </p>
+                <div className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5 pt-1">
+                  <Shield className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Admin accounts cannot be self-registered. Managed by Pundra University IT.</span>
+                </div>
+              </>
+            )}
           </div>
 
         </div>

@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner';
+import { LogoutConfirmModal } from '@/components/LogoutConfirmModal';
 import { calculateAttendancePercentage, generateCSVReport } from '@/lib/attendance/service';
 import {
   GraduationCap,
@@ -18,6 +20,7 @@ import {
   AlertTriangle,
   Download,
   Filter,
+  Home,
   Loader2,
   Camera,
   CameraOff,
@@ -76,8 +79,11 @@ export default function StudentDashboard() {
   const [capturedSamples, setCapturedSamples] = useState<string[]>([]);
   const [enrolling, setEnrolling] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [enrollmentNotice, setEnrollmentNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [recordsSource, setRecordsSource] = useState<'database' | 'empty' | 'local_cache'>('empty');
+  const [studentDbId, setStudentDbId] = useState<string>('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -178,6 +184,7 @@ export default function StudentDashboard() {
         // 3. Check biometric consent status
         let consentGiven = false;
         if (studentData?.id) {
+          setStudentDbId(studentData.id);
           try {
             const { data: consentRow } = await supabase
               .from('student_consent')
@@ -399,11 +406,17 @@ export default function StudentDashboard() {
   }, [router]);
 
   const handleLogout = async () => {
-    if (isSupabaseConfigured()) {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+    setLoggingOut(true);
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      }
+    } finally {
+      setShowLogoutModal(false);
+      setLoggingOut(false);
+      router.push('/login?role=student');
     }
-    router.push('/login?role=student');
   };
 
   const handleExportCSV = () => {
@@ -541,12 +554,36 @@ export default function StudentDashboard() {
     }));
     setConsentModalOpen(false);
 
-    if (!newConsent) {
-      setEnrollmentNotice({
-        type: 'success',
-        text: 'Biometric consent withdrawn. Stored facial embeddings have been safely deleted.',
-      });
+    if (isSupabaseConfigured() && studentDbId) {
+      try {
+        const supabase = createClient();
+        if (newConsent) {
+          await supabase.from('student_consent').upsert({
+            student_id: studentDbId,
+            consent_given: true,
+            consent_date: new Date().toISOString(),
+            consent_text: 'I voluntarily consent to the capture, processing, and temporary template generation of my facial features for the sole purpose of automated classroom attendance recording in Pundra University courses.',
+            withdrawn_at: null,
+          }, { onConflict: 'student_id' });
+        } else {
+          await supabase.from('student_consent').update({
+            consent_given: false,
+            withdrawn_at: new Date().toISOString(),
+          }).eq('student_id', studentDbId);
+          await supabase.from('face_enrollments').delete().eq('student_id', studentDbId);
+          await supabase.from('students').update({ face_registered: false }).eq('id', studentDbId);
+        }
+      } catch (err) {
+        console.warn('Consent persistence notice:', err);
+      }
     }
+
+    setEnrollmentNotice({
+      type: 'success',
+      text: newConsent
+        ? 'Biometric consent granted and recorded in Supabase. You can now enroll your face.'
+        : 'Biometric consent withdrawn. Stored facial embeddings have been safely deleted.',
+    });
   };
 
   const startCamera = async () => {
@@ -628,54 +665,36 @@ export default function StudentDashboard() {
         formData.append('samples', blob, `sample_${idx + 1}.jpg`);
       });
 
-      const response = await fetch('/api/faces/enroll/validate', {
+      // Retrieve current session access token for authenticated API requests
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      const headers: Record<string, string> = {};
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+      // 1. First validate quality checks via /api/faces/enroll/validate
+      const validateResponse = await fetch('/api/faces/enroll/validate', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
-      if (response.status === 401) {
+      if (!validateResponse.ok) {
+        const errJson = await validateResponse.json().catch(() => ({}));
         setEnrollmentNotice({
           type: 'error',
-          text: 'Authentication failure: You must be logged in with a valid student account to validate face samples.',
+          text: errJson.error || `Validation request failed with HTTP ${validateResponse.status}.`,
         });
         return;
       }
 
-      if (response.status === 504) {
-        setEnrollmentNotice({
-          type: 'error',
-          text: 'Service Timeout: The biometric computer-vision service timed out processing samples. Please try again.',
-        });
-        return;
-      }
-
-      if (response.status === 503) {
-        setEnrollmentNotice({
-          type: 'error',
-          text: 'Service Unavailable: Python CV service is not running on port 8000. Run: uvicorn backend.api:app --port 8000',
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        setEnrollmentNotice({
-          type: 'error',
-          text: errJson.error || `Validation request failed with HTTP ${response.status}.`,
-        });
-        return;
-      }
-
-      const resData = await response.json();
-      if (resData.success) {
-        setEnrollmentNotice({
-          type: 'success',
-          text: `Face samples validated successfully (${resData.data?.model_version || 'v1.0-sface'}, 128D). All ${resData.data?.valid_sample_count || 3} samples passed sharpness and geometry checks. NOTE: Validation mode only — biometric templates have NOT been saved to the database.`,
-        });
-        stopCamera();
-        setEnrollModalOpen(false);
-      } else {
-        const firstRejection = resData.data?.samples?.find(
+      const valData = await validateResponse.json();
+      if (!valData.success) {
+        const firstRejection = valData.data?.samples?.find(
           (s: { is_valid: boolean; rejection_reason?: string }) => !s.is_valid
         );
         const reason = firstRejection?.rejection_reason || 'Face samples failed sharpness or single-face detection check.';
@@ -683,11 +702,39 @@ export default function StudentDashboard() {
           type: 'error',
           text: `Quality check rejected: ${reason} Please capture clearer, well-lit samples.`,
         });
+        return;
+      }
+
+      // 2. Commit enrollment template to Supabase public.face_enrollments
+      const enrollResponse = await fetch('/api/faces/enroll', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (!enrollResponse.ok) {
+        const errJson = await enrollResponse.json().catch(() => ({}));
+        setEnrollmentNotice({
+          type: 'error',
+          text: errJson.error || `Biometric persistence failed with HTTP ${enrollResponse.status}.`,
+        });
+        return;
+      }
+
+      const enrollData = await enrollResponse.json();
+      if (enrollData.success) {
+        setProfile((prev) => ({ ...prev, faceRegistered: true }));
+        setEnrollmentNotice({
+          type: 'success',
+          text: `Face biometric enrollment successfully registered in Supabase (${enrollData.model_version || 'v1.0-sface'}, 128D). Your attendance can now be verified via live classroom recognition.`,
+        });
+        stopCamera();
+        setEnrollModalOpen(false);
       }
     } catch {
       setEnrollmentNotice({
         type: 'error',
-        text: 'Network Error: Unable to reach Next.js validation server.',
+        text: 'Network Error: Unable to complete biometric face enrollment.',
       });
     } finally {
       setEnrolling(false);
@@ -795,8 +842,18 @@ export default function StudentDashboard() {
             <span>Export Roster CSV</span>
           </button>
 
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-300 bg-navy-900 hover:bg-navy-800 border border-slate-700 hover:text-white transition-colors"
+          >
+            <Home className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Home</span>
+          </Link>
+
           <button
-            onClick={handleLogout}
+            id="student-signout-btn"
+            type="button"
+            onClick={() => setShowLogoutModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-400 bg-rose-950/30 hover:bg-rose-950/60 border border-rose-800/50 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -804,6 +861,15 @@ export default function StudentDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Sign Out Confirmation Modal */}
+      <LogoutConfirmModal
+        isOpen={showLogoutModal}
+        portalName="Student Portal"
+        loading={loggingOut}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={handleLogout}
+      />
 
       {/* Low Attendance Warning Alert Banner (Requirement #11) */}
       {warningCourses.length > 0 && (
@@ -1187,14 +1253,14 @@ export default function StudentDashboard() {
               </button>
             </div>
 
-            {/* Validation Mode Notice */}
-            <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-800/60 text-xs text-cyan-200 flex items-start gap-2.5">
+            {/* Biometric Enrollment Security Notice */}
+            <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-800/60 text-xs text-cyan-200 flex items-start gap-2.5">
               <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-cyan-300">FastAPI Bridge Validation Mode (Step 7B)</p>
+                <p className="font-semibold text-cyan-300">Secure Biometric Registration (YuNet + SFace)</p>
                 <p className="text-[11px] text-slate-300 mt-0.5">
-                  Captured samples are sent to the Python CV pipeline to validate image sharpness and 128D SFace feature extraction. 
-                  Biometric templates are <strong className="text-white">NOT saved</strong> to the database in this milestone.
+                  Captured samples are verified for face sharpness and geometry by the CV engine. Upon quality validation and active consent verification, 
+                  your 128D SFace biometric embedding template is registered and securely persisted to Supabase for automated classroom attendance.
                 </p>
               </div>
             </div>
@@ -1334,12 +1400,12 @@ export default function StudentDashboard() {
                     {enrolling ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Validating with YuNet & SFace...</span>
+                        <span>Enrolling with YuNet & SFace...</span>
                       </>
                     ) : (
                       <>
                         <Check className="w-4 h-4" />
-                        <span>Validate Face Biometrics (Preview)</span>
+                        <span>Enroll Face Biometrics</span>
                       </>
                     )}
                   </button>

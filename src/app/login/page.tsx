@@ -10,14 +10,17 @@ import { GraduationCap, Users2, Shield, ArrowRight, CheckCircle2, AlertCircle, L
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
-  const [role, setRole] = useState<'student' | 'teacher' | 'admin'>('student');
+  const roleParam = searchParams.get('role');
+  const initialRole: 'student' | 'teacher' | 'admin' =
+    roleParam === 'teacher' ? 'teacher' : roleParam === 'admin' ? 'admin' : 'student';
+  const [role, setRole] = useState<'student' | 'teacher' | 'admin'>(initialRole);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [existingSession, setExistingSession] = useState<{ email: string; role: string } | null>(null);
 
   useEffect(() => {
     const roleParam = searchParams.get('role');
@@ -28,6 +31,36 @@ function LoginForm() {
 
     const msg = searchParams.get('message');
     if (msg) setErrorMsg(msg);
+
+    // Detect if the user already has an active session to preserve across navigation
+    const checkActiveSession = async () => {
+      if (!isSupabaseConfigured()) return;
+      try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const userRole = (session.user.user_metadata?.role as string) || 'student';
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', session.user.id)
+              .single();
+            setExistingSession({
+              email: session.user.email || '',
+              role: data?.role || userRole,
+            });
+          } catch {
+            setExistingSession({
+              email: session.user.email || '',
+              role: userRole,
+            });
+          }
+        }
+      } catch {}
+    };
+
+    checkActiveSession();
   }, [searchParams]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -168,65 +201,96 @@ function LoginForm() {
 
         <div className="p-8 sm:p-10 rounded-3xl bg-navy-850/90 border border-slate-700/80 shadow-2xl backdrop-blur-xl">
           
-          <div className="text-center space-y-2 mb-8">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Portal Access
-            </h1>
-            <p className="text-sm text-slate-400">
-              PUB AttendEye · Pundra University
-            </p>
-          </div>
+          {/* Active Session Notice across Navigation */}
+          {existingSession && (
+            <div className="mb-6 p-4 rounded-2xl bg-cyan-950/40 border border-cyan-500/40 text-cyan-200 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-cyan-300">Active Session Preserved</span>
+                <span className="capitalize px-2 py-0.5 rounded-md bg-cyan-900/60 text-[10px] font-bold border border-cyan-700/50">
+                  {existingSession.role}
+                </span>
+              </div>
+              <p className="text-slate-300">
+                You are currently signed in as <strong className="text-white">{existingSession.email}</strong>.
+              </p>
+              <div className="pt-1 flex items-center gap-2">
+                <Link
+                  href={`/${existingSession.role}/dashboard`}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 transition-colors inline-flex items-center gap-1.5"
+                >
+                  <span>Return to {existingSession.role} Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+          )}
 
-          {/* 3-Role Switcher Tabs */}
-          <div className="grid grid-cols-3 p-1 rounded-2xl bg-navy-900 border border-slate-800 mb-8">
-            <button
-              type="button"
-              onClick={() => {
-                setRole('student');
-                setErrorMsg('');
-              }}
-              className={`flex flex-col items-center justify-center py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                role === 'student'
-                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <GraduationCap className="w-4 h-4 mb-0.5" />
-              <span>Student</span>
-            </button>
+          {/* Header & Role Switcher: Teacher Portal is Isolated */}
+          {role === 'teacher' ? (
+            <div className="text-center space-y-2 mb-8">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-2">
+                <Users2 className="w-6 h-6" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Teacher Portal Access
+              </h1>
+              <p className="text-sm text-slate-400">
+                Pundra University Faculty & Instructor Authentication
+              </p>
+              <div className="pt-2 flex items-center justify-center">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/60 border border-indigo-700/60 text-indigo-300">
+                  <Users2 className="w-3.5 h-3.5" />
+                  <span>Faculty & Teacher Portal</span>
+                </span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="text-center space-y-2 mb-8">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                  Portal Access
+                </h1>
+                <p className="text-sm text-slate-400">
+                  PUB AttendEye · Pundra University
+                </p>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setRole('teacher');
-                setErrorMsg('');
-              }}
-              className={`flex flex-col items-center justify-center py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                role === 'teacher'
-                  ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Users2 className="w-4 h-4 mb-0.5" />
-              <span>Teacher</span>
-            </button>
+              {/* 2-Role Switcher Tabs for Student and Admin */}
+              <div className="grid grid-cols-2 p-1 rounded-2xl bg-navy-900 border border-slate-800 mb-8">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRole('student');
+                    setErrorMsg('');
+                  }}
+                  className={`flex flex-col items-center justify-center py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    role === 'student'
+                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <GraduationCap className="w-4 h-4 mb-0.5" />
+                  <span>Student</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setRole('admin');
-                setErrorMsg('');
-              }}
-              className={`flex flex-col items-center justify-center py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                role === 'admin'
-                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Shield className="w-4 h-4 mb-0.5" />
-              <span>Admin</span>
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRole('admin');
+                    setErrorMsg('');
+                  }}
+                  className={`flex flex-col items-center justify-center py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    role === 'admin'
+                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Shield className="w-4 h-4 mb-0.5" />
+                  <span>Admin</span>
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Feedback Alerts */}
           {errorMsg && (
@@ -317,14 +381,31 @@ function LoginForm() {
 
           {/* Footer Info */}
           <div className="mt-8 pt-6 border-t border-slate-800 text-center space-y-2">
-            {role !== 'admin' ? (
+            {role === 'teacher' ? (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">
+                  Don’t have a faculty account yet?{' '}
+                  <Link
+                    href="/register?role=teacher"
+                    className="text-indigo-400 hover:text-indigo-300 font-semibold"
+                  >
+                    Register as Faculty Member
+                  </Link>
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  <Link href="/#portals" className="hover:text-slate-300 transition-colors">
+                    ← Return to university portals
+                  </Link>
+                </p>
+              </div>
+            ) : role === 'student' ? (
               <p className="text-xs text-slate-400">
                 Don’t have an account yet?{' '}
                 <Link
-                  href={`/register?role=${role}`}
+                  href="/register?role=student"
                   className="text-cyan-400 hover:text-cyan-300 font-semibold"
                 >
-                  Register as {role === 'student' ? 'Student' : 'Faculty'}
+                  Register as Student
                 </Link>
               </p>
             ) : (

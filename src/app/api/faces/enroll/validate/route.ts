@@ -25,39 +25,65 @@ export async function POST(request: NextRequest) {
     process.env.NODE_ENV === 'production' ||
     process.env.PYTHON_API_ENV === 'production';
 
-  // 1. Authenticate server-side via Supabase SSR
+  // 1. Authenticate server-side via Authorization header or Supabase SSR cookies
   let authenticatedUserId: string | null = null;
   let accessToken: string = '';
   let isDevTestBypass = false;
 
-  if (isSupabaseConfigured()) {
-    try {
-      const supabase = await createClient();
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+  const authHeader = request.headers.get('authorization');
+  let headerToken = '';
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    headerToken = authHeader.slice(7).trim();
+  }
 
-      if (user && !userError) {
-        authenticatedUserId = user.id;
+  if (isSupabaseConfigured()) {
+    // 1a. Try Bearer token from Authorization header first if present
+    if (headerToken) {
+      try {
+        const tokenClient = await createClient(headerToken);
         const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        accessToken = session?.access_token || '';
+          data: { user },
+          error: userError,
+        } = await tokenClient.auth.getUser(headerToken);
+
+        if (user && !userError) {
+          authenticatedUserId = user.id;
+          accessToken = headerToken;
+        }
+      } catch {
+        // Bearer token lookup failed, fall through to cookies
       }
-    } catch {
-      // Supabase unreachable or session lookup failure
+    }
+
+    // 1b. Fall back to cookie-based session
+    if (!authenticatedUserId) {
+      try {
+        const cookieClient = await createClient();
+        const {
+          data: { user },
+          error: userError,
+        } = await cookieClient.auth.getUser();
+
+        if (user && !userError) {
+          authenticatedUserId = user.id;
+          const {
+            data: { session },
+          } = await cookieClient.auth.getSession();
+          accessToken = session?.access_token || '';
+        }
+      } catch {
+        // Supabase unreachable or session lookup failure
+      }
     }
   }
 
-  // Handle development-only test token if no session exists
+  // Handle development-only test token if no session exists (non-production only)
   if (!authenticatedUserId) {
-    const authHeader = request.headers.get('authorization');
     const devTestHeader = request.headers.get('x-dev-test-token');
     const devTokenEnv = process.env.DEV_TEST_TOKEN;
 
     // Development bypass is allowed only when explicitly configured with a matching token.
-    if (!isProduction && devTokenEnv && (devTestHeader === devTokenEnv || authHeader?.replace(/^Bearer\s+/i, '') === devTokenEnv)) {
+    if (!isProduction && devTokenEnv && (devTestHeader === devTokenEnv || headerToken === devTokenEnv)) {
       isDevTestBypass = true;
       accessToken = devTokenEnv;
       authenticatedUserId = 'dev-test-student';
@@ -70,6 +96,16 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+  }
+
+  if (!accessToken) {
+    return NextResponse.json(
+      {
+        error: 'Authentication session token is missing or expired. Please log in again.',
+        code: 'UNAUTHORIZED',
+      },
+      { status: 401 }
+    );
   }
 
   // 2. Parse and validate multipart form data

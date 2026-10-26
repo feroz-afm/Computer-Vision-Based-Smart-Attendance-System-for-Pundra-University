@@ -11,7 +11,7 @@ interface CookieToSet {
  * Server-side Supabase Client for Next.js 15 App Router
  * Uses async cookies() from next/headers.
  */
-export async function createClient() {
+export async function createClient(accessToken?: string) {
   const cookieStore = await cookies();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-project.supabase.co';
@@ -32,6 +32,13 @@ export async function createClient() {
         }
       },
     },
+    global: accessToken
+      ? {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      : undefined,
   });
 }
 

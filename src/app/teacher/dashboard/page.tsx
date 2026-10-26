@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner';
+import { LogoutConfirmModal } from '@/components/LogoutConfirmModal';
 import { generateCSVReport, validateCorrectionReason } from '@/lib/attendance/service';
 import {
   Users2,
@@ -13,6 +14,7 @@ import {
   Clock,
   Scan,
   BookOpen,
+  Home,
   LogOut,
   Camera,
   Play,
@@ -100,7 +102,12 @@ export default function TeacherDashboard() {
   const [sessionActive, setSessionActive] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [autoScanActive, setAutoScanActive] = useState(false);
+  const [detectedBoxes, setDetectedBoxes] = useState<any[]>([]);
+  const [lastScanMessage, setLastScanMessage] = useState<string>('');
 
   const [profile, setProfile] = useState<TeacherProfile>({
     name: 'Faculty Member',
@@ -150,6 +157,8 @@ export default function TeacherDashboard() {
   const [correctionReason, setCorrectionReason] = useState('');
   const [correctionError, setCorrectionError] = useState('');
   const [persistedDbSessionId, setPersistedDbSessionId] = useState<string | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [unsavedAttendance, setUnsavedAttendance] = useState<{ courseCode: string; section: string; roster: RosterStudent[] } | null>(null);
   const [sessionFeedback, setSessionFeedback] = useState<{
     dbSaved: boolean;
@@ -283,7 +292,7 @@ export default function TeacherDashboard() {
               setSelectedCourseCode(loadedAssignments[0].code);
               setSelectedSection(loadedAssignments[0].section);
               setRoomNumber(loadedAssignments[0].room);
-              setRoster(getEnrolledRosterForSection(loadedAssignments[0].code, loadedAssignments[0].section));
+              await loadRosterForCourse(loadedAssignments[0].code, loadedAssignments[0].section);
             } else {
               setAssignedCourses([]);
               setSelectedCourseCode('');
@@ -302,6 +311,176 @@ export default function TeacherDashboard() {
     fetchTeacher();
   }, [router]);
 
+  const loadRosterForCourse = async (courseCode: string, section: string) => {
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        const { data: courseRow } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('course_code', courseCode)
+          .maybeSingle();
+
+        if (courseRow?.id) {
+          const { data: enrollmentsData } = await supabase
+            .from('enrollments')
+            .select(`
+              student_id,
+              section_name,
+              students (
+                id,
+                student_id_number,
+                face_registered,
+                profiles (
+                  full_name
+                )
+              )
+            `)
+            .eq('course_id', courseRow.id)
+            .eq('section_name', section)
+            .eq('enrollment_status', 'enrolled');
+
+          if (enrollmentsData && enrollmentsData.length > 0) {
+            const loadedRoster: RosterStudent[] = enrollmentsData.map((e: any) => ({
+              id: e.students?.id || e.student_id,
+              name: e.students?.profiles?.full_name || 'Enrolled Student',
+              studentId: e.students?.student_id_number || 'N/A',
+              status: 'absent',
+              confidence: 'N/A',
+              time: 'N/A',
+              method: 'Unattended',
+            }));
+            setRoster(loadedRoster);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load roster from Supabase:', err);
+      }
+    }
+
+    setRoster(getEnrolledRosterForSection(courseCode, section));
+  };
+
+  const processClassroomImage = async (imageBlob: Blob) => {
+    setScanning(true);
+    setLastScanMessage('Scanning frame and running YuNet + SFace face recognition...');
+    try {
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'frame.jpg');
+      formData.append('course_code', selectedCourseCode);
+      formData.append('section', selectedSection);
+
+      const rosterPayload = roster.map((s) => ({
+        student_id: s.studentId,
+        name: s.name,
+      }));
+      formData.append('roster_json', JSON.stringify(rosterPayload));
+
+      const res = await fetch('/api/faces/match', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        setLastScanMessage(`Recognition notice: ${errJson.error || 'Check service status'}`);
+        return;
+      }
+
+      const matchData = await res.json();
+      const nowTime = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+      if (matchData.face_results && matchData.face_results.length > 0) {
+        setDetectedBoxes(matchData.face_results);
+
+        let matchedCount = 0;
+        let reviewCount = 0;
+
+        setRoster((prev) => {
+          const updated = [...prev];
+          for (const fr of matchData.face_results) {
+            if (fr.decision === 'matched_candidate' && fr.candidate_student_id) {
+              const idx = updated.findIndex(
+                (s) => s.studentId === fr.candidate_student_id || s.id === fr.candidate_student_id
+              );
+              if (idx !== -1) {
+                // Anti-duplicate protection: never demote an already present student
+                updated[idx] = {
+                  ...updated[idx],
+                  status: 'present',
+                  confidence: `${(fr.similarity_score * 100).toFixed(1)}%`,
+                  time: updated[idx].status === 'present' ? updated[idx].time : nowTime,
+                  method: 'Face Recognition',
+                };
+                matchedCount++;
+              }
+            } else if (fr.decision === 'review_required' && fr.candidate_student_id) {
+              const idx = updated.findIndex(
+                (s) => s.studentId === fr.candidate_student_id || s.id === fr.candidate_student_id
+              );
+              if (idx !== -1 && updated[idx].status !== 'present') {
+                updated[idx] = {
+                  ...updated[idx],
+                  status: 'pending_review',
+                  confidence: `${(fr.similarity_score * 100).toFixed(1)}%`,
+                  time: nowTime,
+                  method: 'Low-Confidence Match',
+                };
+                reviewCount++;
+              }
+            }
+          }
+          return updated;
+        });
+
+        setLastScanMessage(
+          matchData.mode === 'biometric_matching'
+            ? `Biometric Match: ${matchedCount} student(s) verified present, ${reviewCount} pending review.`
+            : `Face Detection: ${matchData.total_detected_faces} face(s) located in frame.`
+        );
+      } else {
+        setDetectedBoxes([]);
+        setLastScanMessage('Scan complete: No faces detected in frame. Please face the camera directly in good lighting.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Recognition error';
+      setLastScanMessage(`Scan error: ${msg}`);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleScanAttendanceFrame = async () => {
+    if (!videoRef.current || !canvasRef.current || scanning) return;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        processClassroomImage(blob);
+      }
+    }, 'image/jpeg', 0.85);
+  };
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (sessionActive && cameraActive && autoScanActive) {
+      timer = setInterval(() => {
+        handleScanAttendanceFrame();
+      }, 4000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [sessionActive, cameraActive, autoScanActive, selectedCourseCode, selectedSection]);
+
   // Web Camera start
   const startCamera = async () => {
     try {
@@ -318,6 +497,7 @@ export default function TeacherDashboard() {
   };
 
   const stopCamera = () => {
+    setAutoScanActive(false);
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach((t) => t.stop());
@@ -326,7 +506,7 @@ export default function TeacherDashboard() {
   };
 
   // Requirement #5 Guard Test: Teacher tries to initiate unauthorized course
-  const handleCourseSelect = (code: string) => {
+  const handleCourseSelect = async (code: string) => {
     const isAssigned = assignedCourses.some((c) => c.code === code);
     if (!isAssigned) {
       setUnauthorizedAttempt(true);
@@ -342,7 +522,7 @@ export default function TeacherDashboard() {
     if (matched) {
       setSelectedSection(matched.section);
       setRoomNumber(matched.room);
-      setRoster(getEnrolledRosterForSection(matched.code, matched.section));
+      await loadRosterForCourse(matched.code, matched.section);
     }
   };
 
@@ -370,7 +550,7 @@ export default function TeacherDashboard() {
     startCamera();
   };
 
-  const handleClassroomPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleClassroomPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (approvalStatus === 'pending') {
       setSecurityError('Forbidden [403]: Your faculty account is pending Admin approval. You cannot upload classroom photos.');
       return;
@@ -385,13 +565,14 @@ export default function TeacherDashboard() {
     }
     const file = e.target.files?.[0];
     if (file) {
-      // Process classroom photograph with multi-face detection
-      alert(`Classroom photograph "${file.name}" received for ${selectedCourseCode} (${selectedSection}). Processing multi-face recognition against enrolled students.`);
       setSessionActive(true);
+      setSessionFeedback(null);
+      await processClassroomImage(file);
     }
   };
 
   const handleFinalizeSession = async () => {
+    setAutoScanActive(false);
     // Keep uncertain matches out of automatic attendance finalization (Requirement #7)
     const pendingReviews = roster.filter((s) => s.status === 'pending_review');
     if (pendingReviews.length > 0) {
@@ -757,11 +938,17 @@ export default function TeacherDashboard() {
   };
 
   const handleLogout = async () => {
-    if (isSupabaseConfigured()) {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+    setLoggingOut(true);
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      }
+    } finally {
+      setShowLogoutModal(false);
+      setLoggingOut(false);
+      router.push('/login?role=teacher');
     }
-    router.push('/login?role=teacher');
   };
 
   if (loading) {
@@ -852,8 +1039,18 @@ export default function TeacherDashboard() {
             <span>Export Roster CSV</span>
           </button>
 
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-300 bg-navy-900 hover:bg-navy-800 border border-slate-700 hover:text-white transition-colors"
+          >
+            <Home className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Home</span>
+          </Link>
+
           <button
-            onClick={handleLogout}
+            id="teacher-signout-btn"
+            type="button"
+            onClick={() => setShowLogoutModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-400 bg-rose-950/30 hover:bg-rose-950/60 border border-rose-800/50 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -861,6 +1058,15 @@ export default function TeacherDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Sign Out Confirmation Modal */}
+      <LogoutConfirmModal
+        isOpen={showLogoutModal}
+        portalName="Teacher Portal"
+        loading={loggingOut}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={handleLogout}
+      />
 
       {/* Security Error Alert (Requirement #5) */}
       {securityError && (
@@ -1105,6 +1311,7 @@ export default function TeacherDashboard() {
                 muted
                 className={`w-full h-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
               />
+              <canvas ref={canvasRef} className="hidden" />
 
               {!cameraActive && (
                 <div className="text-center p-6 space-y-3">
@@ -1124,16 +1331,38 @@ export default function TeacherDashboard() {
                     <div className="px-3 py-1 rounded-md bg-navy-950/80 border border-cyan-500/40 text-[11px] font-mono text-cyan-400 backdrop-blur-md">
                       COURSE: {selectedCourseCode} · {selectedSection}
                     </div>
-                    <div className="px-3 py-1 rounded-md bg-navy-950/80 border border-cyan-500/40 text-[11px] font-mono text-cyan-400 backdrop-blur-md">
-                      OPTICAL VISION: ACTIVE
+                    <div className="px-3 py-1 rounded-md bg-navy-950/80 border border-cyan-500/40 text-[11px] font-mono text-cyan-400 backdrop-blur-md flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${cameraActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                      <span>{cameraActive ? 'OPTICAL VISION: LIVE' : 'PHOTO MODE'}</span>
                     </div>
                   </div>
 
-                  <div className="self-center w-44 h-52 border-2 border-dashed border-cyan-400/80 rounded-2xl flex items-end justify-center pb-2 bg-cyan-500/5">
-                    <span className="text-[10px] font-mono font-bold bg-navy-950/90 text-cyan-300 px-2 py-0.5 rounded border border-cyan-500/40">
-                      PUB-CSE-2023-042 (98.8%)
-                    </span>
-                  </div>
+                  {/* Recognition Detections HUD */}
+                  {detectedBoxes.length > 0 ? (
+                    <div className="self-center flex flex-wrap gap-2 justify-center max-w-md">
+                      {detectedBoxes.slice(0, 4).map((db, idx) => (
+                        <div
+                          key={idx}
+                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-mono font-semibold backdrop-blur-md shadow-lg ${
+                            db.decision === 'matched_candidate'
+                              ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300'
+                              : db.decision === 'review_required'
+                              ? 'bg-amber-950/80 border-amber-500/60 text-amber-300'
+                              : 'bg-slate-900/80 border-slate-700 text-slate-400'
+                          }`}
+                        >
+                          {db.candidate_name || db.candidate_student_id || 'Unknown Face'}
+                          {db.similarity_score > 0 ? ` (${(db.similarity_score * 100).toFixed(1)}%)` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="self-center w-44 h-52 border-2 border-dashed border-cyan-400/80 rounded-2xl flex items-end justify-center pb-2 bg-cyan-500/5">
+                      <span className="text-[10px] font-mono font-bold bg-navy-950/90 text-cyan-300 px-2 py-0.5 rounded border border-cyan-500/40">
+                        {cameraActive ? 'Ready to Scan' : 'Classroom Vision Active'}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="px-3 py-1.5 rounded-lg bg-navy-950/85 border border-slate-700 text-xs text-slate-300 backdrop-blur-md flex justify-between">
                     <span>Present: <strong>{presentCount}</strong> | Pending Review: <strong>{pendingReviewCount}</strong></span>
@@ -1142,6 +1371,54 @@ export default function TeacherDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Live Camera Controls Bar */}
+            {sessionActive && (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-navy-950 border border-slate-800 mt-3">
+                <div className="flex items-center gap-2">
+                  {cameraActive && (
+                    <>
+                      <button
+                        id="scan-attendance-btn"
+                        type="button"
+                        disabled={scanning}
+                        onClick={handleScanAttendanceFrame}
+                        className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 flex items-center gap-2 shadow-md shadow-cyan-500/20 disabled:opacity-50 transition-all"
+                      >
+                        {scanning ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Analyzing Faces...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Scan className="w-3.5 h-3.5" />
+                            <span>Scan Faces Now</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAutoScanActive((prev) => !prev)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                          autoScanActive
+                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50 shadow-md'
+                            : 'bg-navy-900 text-slate-400 border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${autoScanActive ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
+                        <span>{autoScanActive ? 'Auto-Scan: ACTIVE (4s)' : 'Auto-Scan: OFF'}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="text-[11px] text-slate-400 font-mono">
+                  {lastScanMessage || (cameraActive ? 'Live video active · Click Scan Faces Now to recognize' : 'Photo received')}
+                </div>
+              </div>
+            )}
 
             {/* Quick Metrics Bar */}
             <div className="grid grid-cols-3 gap-3 mt-6">

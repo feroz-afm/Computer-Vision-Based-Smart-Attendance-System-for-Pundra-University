@@ -446,6 +446,101 @@ class TestMatchPreviewEndpoint(unittest.TestCase):
 
 
 @unittest.skipUnless(FASTAPI_AVAILABLE, "FastAPI or httpx not installed")
+class TestEnrollExtractTemplateEndpoint(unittest.TestCase):
+    """Tests for POST /api/v1/faces/enroll/extract_template."""
+
+    def setUp(self):
+        self.auth_bypass = _AuthBypass()
+        self.auth_bypass.__enter__()
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        self.auth_bypass.__exit__(None, None, None)
+
+    def test_extract_template_empty_samples_returns_422(self):
+        resp = self.client.post(
+            "/api/v1/faces/enroll/extract_template",
+            headers={"Authorization": "Bearer dev-test-token"},
+            files=[],
+        )
+        self.assertIn(resp.status_code, (400, 422))
+
+    def test_extract_template_auth_failure_without_bypass(self):
+        self.auth_bypass.__exit__(None, None, None)
+        try:
+            resp = self.client.post(
+                "/api/v1/faces/enroll/extract_template",
+                files=[("samples", ("sample.jpg", io.BytesIO(_blank_jpeg()), "image/jpeg"))],
+            )
+            self.assertEqual(resp.status_code, 401)
+        finally:
+            self.auth_bypass.__enter__()
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "FastAPI or httpx not installed")
+class TestFaceMatchEndpoint(unittest.TestCase):
+    """Tests for POST /api/v1/faces/match."""
+
+    def setUp(self):
+        self.auth_bypass = _AuthBypass()
+        self.auth_bypass.__enter__()
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        self.auth_bypass.__exit__(None, None, None)
+
+    def test_match_blank_image_returns_zero_detections(self):
+        jpeg_data = _blank_jpeg(640, 480)
+        roster_json = _mock_roster_json(2)
+        resp = self.client.post(
+            "/api/v1/faces/match",
+            headers={"Authorization": "Bearer dev-test-token"},
+            files={
+                "image": ("classroom.jpg", io.BytesIO(jpeg_data), "image/jpeg"),
+                "course_code": (None, "CSE 2205"),
+                "section": (None, "Section A"),
+                "roster_json": (None, roster_json),
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["total_detected_faces"], 0)
+        self.assertEqual(data["matched_candidates_count"], 0)
+        self.assertEqual(data["review_required_count"], 0)
+        self.assertEqual(data["unknown_count"], 0)
+        self.assertEqual(data["face_results"], [])
+
+    def test_match_auth_failure_without_bypass(self):
+        self.auth_bypass.__exit__(None, None, None)
+        try:
+            resp = self.client.post(
+                "/api/v1/faces/match",
+                files={
+                    "image": ("classroom.jpg", io.BytesIO(_blank_jpeg()), "image/jpeg"),
+                    "course_code": (None, "CSE 2205"),
+                    "section": (None, "Section A"),
+                    "roster_json": (None, "[]"),
+                },
+            )
+            self.assertEqual(resp.status_code, 401)
+        finally:
+            self.auth_bypass.__enter__()
+
+    def test_match_invalid_roster_json_returns_422(self):
+        resp = self.client.post(
+            "/api/v1/faces/match",
+            headers={"Authorization": "Bearer dev-test-token"},
+            files={
+                "image": ("classroom.jpg", io.BytesIO(_blank_jpeg()), "image/jpeg"),
+                "course_code": (None, "CSE 2205"),
+                "section": (None, "Section A"),
+                "roster_json": (None, "not valid json"),
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+
+@unittest.skipUnless(FASTAPI_AVAILABLE, "FastAPI or httpx not installed")
 class TestCORSConfiguration(unittest.TestCase):
     """Tests for CORS headers."""
 

@@ -287,6 +287,62 @@ export const cvApi = {
       accessToken
     );
   },
+
+  /**
+   * Extract unit-normalized 128D SFace biometric embedding vector for server-side persistence.
+   * Requires a valid Supabase access token.
+   */
+  async extractEnrollmentTemplate(
+    imageBlobs: Blob[],
+    accessToken: string
+  ): Promise<{
+    all_valid: boolean;
+    model_version: string;
+    samples_count: number;
+    embedding: number[] | null;
+    message: string;
+  }> {
+    if (imageBlobs.length === 0 || imageBlobs.length > 5) {
+      throw new CVApiClientError(422, "Provide between 1 and 5 enrollment sample images.");
+    }
+    const form = new FormData();
+    imageBlobs.forEach((blob, idx) => {
+      form.append("samples", blob, `sample_${idx + 1}.jpg`);
+    });
+    return _cvFetch(
+      "/api/v1/faces/enroll/extract_template",
+      { method: "POST", body: form },
+      accessToken
+    );
+  },
+
+  /**
+   * Run multi-face identity matching for live classroom attendance against course section roster.
+   * Requires a valid Supabase access token.
+   */
+  async matchFaces(
+    imageBlob: Blob,
+    courseCode: string,
+    section: string,
+    roster: Array<{
+      student_id: string;
+      name: string;
+      embedding: number[];
+    }>,
+    accessToken: string
+  ): Promise<CVApiMatchPreviewResponse> {
+    const form = new FormData();
+    form.append("image", imageBlob, "classroom.jpg");
+    form.append("course_code", courseCode);
+    form.append("section", section);
+    form.append("roster_json", JSON.stringify(roster));
+
+    return _cvFetch<CVApiMatchPreviewResponse>(
+      "/api/v1/faces/match",
+      { method: "POST", body: form },
+      accessToken
+    );
+  },
 } as const;
 
 export { CVApiClientError };

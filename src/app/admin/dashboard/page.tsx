@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { SupabaseStatusBanner } from '@/components/SupabaseStatusBanner';
+import { LogoutConfirmModal } from '@/components/LogoutConfirmModal';
 import { generateCSVReport } from '@/lib/attendance/service';
 import {
   Shield,
@@ -13,6 +14,7 @@ import {
   Users2,
   BookOpen,
   Calendar,
+  Home,
   LogOut,
   KeyRound,
   CheckCircle2,
@@ -72,6 +74,8 @@ export default function AdminDashboard() {
   const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'admin'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // Threshold Settings (Requirement #11)
   const [warningThreshold, setWarningThreshold] = useState(75.0);
@@ -656,11 +660,17 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = async () => {
-    if (isSupabaseConfigured()) {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+    setLoggingOut(true);
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      }
+    } finally {
+      setShowLogoutModal(false);
+      setLoggingOut(false);
+      router.push('/login?role=admin');
     }
-    router.push('/login?role=admin');
   };
 
   const filteredUsers = users.filter((u) => {
@@ -717,8 +727,18 @@ export default function AdminDashboard() {
             <span>Export Catalog CSV</span>
           </button>
 
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-300 bg-navy-900 hover:bg-navy-800 border border-slate-700 hover:text-white transition-colors"
+          >
+            <Home className="w-3.5 h-3.5 text-purple-400" />
+            <span>Home</span>
+          </Link>
+
           <button
-            onClick={handleLogout}
+            id="admin-signout-btn"
+            type="button"
+            onClick={() => setShowLogoutModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-400 bg-rose-950/30 hover:bg-rose-950/60 border border-rose-800/50 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
@@ -726,6 +746,15 @@ export default function AdminDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Sign Out Confirmation Modal */}
+      <LogoutConfirmModal
+        isOpen={showLogoutModal}
+        portalName="Admin Console"
+        loading={loggingOut}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={handleLogout}
+      />
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">

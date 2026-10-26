@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Users } from 'lucide-react';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { Menu, X, Users, LayoutDashboard } from 'lucide-react';
 
 const NAV_LINKS = [
   { label: 'Overview', href: '/#overview', targetId: 'overview' },
@@ -17,6 +18,7 @@ const NAV_LINKS = [
 export const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeRole, setActiveRole] = useState<'student' | 'teacher' | 'admin' | null>(null);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -25,6 +27,52 @@ export const Navbar = () => {
     };
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    const checkSession = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const role = (session.user.user_metadata?.role as 'student' | 'teacher' | 'admin') || 'student';
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', session.user.id)
+              .single();
+            setActiveRole((data?.role as 'student' | 'teacher' | 'admin') || role);
+          } catch {
+            setActiveRole(role);
+          }
+        } else {
+          setActiveRole(null);
+        }
+      } catch {
+        // Safe fallback
+      }
+    };
+
+    checkSession();
+
+    try {
+      const supabase = createClient();
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          const role = (session.user.user_metadata?.role as 'student' | 'teacher' | 'admin') || 'student';
+          setActiveRole(role);
+        } else {
+          setActiveRole(null);
+        }
+      });
+
+      return () => {
+        listener.subscription.unsubscribe();
+      };
+    } catch {}
   }, []);
 
   const scrollToSection = useCallback((targetId: string) => {
@@ -153,13 +201,23 @@ export const Navbar = () => {
               <Users className="w-4 h-4 text-cyan-400" />
               <span>Role Portals</span>
             </Link>
-            <Link
-              href="/#portals"
-              onClick={(e) => handleNavClick(e, 'portals')}
-              className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 px-5 py-2.5 rounded-lg shadow-md shadow-cyan-500/20 transition-all hover:shadow-cyan-500/35 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-            >
-              <span>Get Started</span>
-            </Link>
+            {activeRole ? (
+              <Link
+                href={`/${activeRole}/dashboard`}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 px-5 py-2.5 rounded-lg shadow-md shadow-cyan-500/20 transition-all hover:shadow-cyan-500/35 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 capitalize"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>{activeRole} Dashboard</span>
+              </Link>
+            ) : (
+              <Link
+                href="/#portals"
+                onClick={(e) => handleNavClick(e, 'portals')}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 px-5 py-2.5 rounded-lg shadow-md shadow-cyan-500/20 transition-all hover:shadow-cyan-500/35 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              >
+                <span>Get Started</span>
+              </Link>
+            )}
           </div>
 
           {/* Mobile Menu Toggle */}
@@ -189,6 +247,15 @@ export const Navbar = () => {
               ))}
             </div>
             <div className="pt-3 border-t border-slate-800 flex flex-col gap-2.5">
+              {activeRole && (
+                <Link
+                  href={`/${activeRole}/dashboard`}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center py-2.5 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 capitalize focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                >
+                  Return to {activeRole} Dashboard
+                </Link>
+              )}
               <Link
                 href="/#portals"
                 onClick={(e) => handleNavClick(e, 'portals')}

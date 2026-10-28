@@ -260,6 +260,8 @@ node tests/test_student_dashboard_real_data.mjs
 3. **Anti-Spoofing Roadmap:** The current release implements geometry, landmark checks, and sharpness gating. Active 3D challenge-response (head turn / blink prompt) is scheduled for Version 2.1.
 4. **Resolution Recommendations:** For large lecture halls (> 40 students per frame), 1080p Full HD resolution or segmented sector scanning is recommended for optimal YuNet detection accuracy.
 
+Demo video link :  https://drive.google.com/drive/folders/1TOS8X7bpe_ZyqevYWtywlwA9Nd8N2Xt4
+
 ---
 
 ## 📄 License & Credits

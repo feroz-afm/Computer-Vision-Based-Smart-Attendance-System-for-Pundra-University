@@ -1,6 +1,6 @@
 # PUB AttendEye 👁️🎓 (Version 2.0.0)
 
-**PUB AttendEye** is an AI-powered automated smart attendance monitoring and academic management platform engineered for **Pundra University of Science & Technology (PUB)**, Bogra, Bangladesh.
+**PUB AttendEye** is an AI-powered automated smart attendance monitoring and academic management platform engineered for **Pundra University of Science & Technology (PUB)**, Bogra, Bangladesh .
 
 Version 2.0.0 represents a complete architectural overhaul from the legacy v1 starter prototype to an enterprise-grade, secure, multi-tier biometric system featuring **Next.js 15 App Router**, **Supabase PostgreSQL & SSR Auth**, and an optimized **Python FastAPI Computer Vision Engine** powered by OpenCV DNN with **YuNet** face detection and **SFace** 128-dimensional biometric feature representation.
 
